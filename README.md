@@ -81,6 +81,31 @@ Groups and tools we plan to build on or work with. Add any new contact or tool h
 | [Joshua Project](https://joshuaproject.net) | People group and language data | Keeping the language list current |
 | [Wycliffe Global Alliance](https://www.wycliffe.net) / [ProgressBible](https://progress.bible) | Authoritative translation status | Confirming which languages truly need a start |
 
+### Open-source projects to build on
+Checked 2026-10-03 (license from each repo; "last active" is its latest commit).
+
+| Project | What it does | License | Last active | How it fits |
+| --- | --- | --- | --- | --- |
+| [Codex Translation Editor](https://github.com/genesis-ai-dev/codex-editor) (Frontier R&D) | VS Code extension for scripture translation with LLM drafting and checks | MIT | Sep 2026 | Closest match to this project; reuse ideas from its project format and review UI |
+| [LangQuest](https://github.com/genesis-ai-dev/langquest) (Frontier R&D) | Offline mobile app where native speakers record or type translations and the community validates them | No license file; ask before reusing | Sep 2026 | Collecting speaker data on phones |
+| [Fluent](https://github.com/eten-tech-foundation/fluent-web) ([API](https://github.com/eten-tech-foundation/fluent-api)) (ETEN) | AI-assisted suite for drafting, checking and publishing | MIT | Oct 2026 | Partner; a model for a later web backend |
+| [BT Servant](https://github.com/unfoldingWord/bt-servant-worker) (unfoldingWord) | Claude-based helper for translators over WhatsApp, Telegram and Signal, with speech-to-text | MIT | Sep 2026 | Already uses Claude; a model for reviewing by chat |
+| [Serval](https://github.com/sillsdev/serval), [SILNLP](https://github.com/sillsdev/silnlp), [SIL Machine](https://github.com/sillsdev/machine) (SIL) | Translation and word-alignment engines; USFM tools | MIT | Oct 2026 | Second drafting engine, alignment checks, USFM export |
+| [Scripture Forge](https://github.com/sillsdev/web-xforge) (SIL) | Web translation and community checking linked to Paratext | MIT | Oct 2026 | Model for community checking; route into Paratext |
+| [Greek Room](https://github.com/BibleNLP/greek-room) (USC ISI) | Automatic checks: script, punctuation, spelling consistency | BSD-3 | Sep 2026 | Run before speakers review |
+| [uroman](https://github.com/isi-nlp/uroman) | Converts any writing system to Latin letters | MIT-style | Jul 2024 | Languages written in non-Latin scripts |
+| [MACULA Greek](https://github.com/Clear-Bible/macula-greek) (Clear.Bible) | Greek NT with word-by-word analysis and glosses | CC BY 4.0 | Jul 2026 | Richer source context for drafting |
+| [Bible Aquifer](https://github.com/BibleAquifer) | Openly licensed study resources and key terms | CC BY / CC BY-SA | Jul 2026 | Key terms and notes for speakers |
+| [Omnilingual ASR](https://github.com/facebookresearch/omnilingual-asr) (Meta) | Speech recognition for 1,600+ languages, extendable from a few examples | Apache-2.0 | Dec 2025 | Speakers could dictate verses instead of typing |
+| [Render](https://github.com/faithcomesbyhearing/render) (Faith Comes By Hearing) | Oral Bible translation workflow | MIT | Nov 2024 | Oral review ideas; development has gone quiet |
+| [awesome-bible-nlp](https://github.com/BibleNLP/awesome-bible-nlp) | Curated list of Bible NLP resources | MIT | Sep 2025 | Finding more |
+
+GPL tools such as [translationCore](https://github.com/unfoldingWord) and [BTT Writer](https://github.com/Bible-Translation-Tools/BTT-Writer-Desktop) are useful references, but their code can't be copied into this MIT-style project without relicensing.
+
+Most of these tools read and write **USFM**, so exporting confirmed text as USFM is the planned next step for sharing with Paratext and other teams.
+
+Research worth following: retrieval with more context helps most in extremely low-resource translation ([arXiv 2601.09982](https://arxiv.org/abs/2601.09982)), and closely related languages can guide translation ([arXiv 2603.16660](https://arxiv.org/abs/2603.16660)).
+
 ## Texts and credits
 - **KJV**: 1769 text, public domain (`data/kjv.json`, from BibleApp).
 - **Greek New Testament**: Scrivener's 1894 Textus Receptus, public domain (`data/tr.json`, from BibleApp).
