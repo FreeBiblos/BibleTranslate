@@ -15,6 +15,7 @@
 </header>
 
 <nav class="tabs" role="tablist">
+  <button role="tab" data-tab="needs">Languages in need</button>
   <button role="tab" data-tab="language" aria-selected="true">Language</button>
   <button role="tab" data-tab="words">Word list</button>
   <button role="tab" data-tab="samples">Sample verses</button>
@@ -23,6 +24,26 @@
 </nav>
 
 <main>
+  <!-- Languages still needing a Bible -->
+  <section id="tab-needs" class="tab" hidden>
+    <p class="lead">Living languages with no Bible translation started yet, and those where work has started but nothing is published. Recordings are a way to hear speakers; related languages with a Bible are where we practise and check the method.</p>
+    <div class="card row-form">
+      <input id="needs-search" type="search" placeholder="Search name, code, country or family">
+      <select id="needs-status" aria-label="Status">
+        <option value="translation needed">Not started</option>
+        <option value="translation started">Started, nothing published</option>
+        <option value="">Both</option>
+      </select>
+      <label class="check"><input type="checkbox" id="needs-rec"> Has recordings</label>
+    </div>
+    <p id="needs-count" class="muted"></p>
+    <table class="list-table needs-table">
+      <thead><tr><th>Language</th><th>Country</th><th>Family</th><th>Recordings</th><th>Closest languages with a Bible</th><th></th></tr></thead>
+      <tbody id="needs-list"></tbody>
+    </table>
+    <p class="muted small"><span id="needs-attrib"></span> Built by <code>tools/languages/build_needs.py</code>.</p>
+  </section>
+
   <!-- Language -->
   <section id="tab-language" class="tab">
     <p class="lead">Start with the language you are translating into. A speaker of the language then adds a word list and a few translated verses, the AI drafts more verses from those examples, and people who speak the language review every draft.</p>
@@ -81,7 +102,7 @@
 
   <!-- Review -->
   <section id="tab-review" class="tab" hidden>
-    <p class="lead">Open draft files made by the drafting tool (<code>tools/draft.py</code>). Check each verse's English back-translation against the KJV, correct the wording, then approve it or mark it for more work. Approved verses become examples for the next drafts.</p>
+    <p class="lead">Open draft files made by the drafting tool (<code>tools/draft.py</code>). Check each verse's English back-translation against the KJV, correct the wording, then approve it or mark it for more work. A verse is confirmed once two different speakers approve the same wording. Approved verses become examples for the next drafts.</p>
     <div class="card row-form">
       <label class="file-btn secondary">Open draft files<input id="draft-files" type="file" accept=".json,application/json" multiple hidden></label>
       <label>Reviewer <input id="reviewer" placeholder="Your name"></label>
@@ -102,7 +123,7 @@
     </div>
     <div class="card">
       <h2>For the Bible app</h2>
-      <p>Approved chapters in the format the free Bible app reads. Each book is included from chapter 1 up to its first chapter that is not fully approved, because the app lines verses up by position.</p>
+      <p>Confirmed chapters (every draft verse approved by two different speakers) in the format the free Bible app reads. Each book is included from chapter 1 up to its first chapter that is not fully approved, because the app lines verses up by position.</p>
       <button class="primary" id="export-bibleapp">Download approved chapters</button>
       <p id="export-summary" class="muted"></p>
     </div>

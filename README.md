@@ -6,6 +6,7 @@ Nothing here is published as Scripture. Every AI verse is marked as a draft unti
 
 ## How it works
 
+0. **Languages in need** (in the app): every living language with no Bible translation started yet, with its country, language family, links to recordings of speakers, and the closest related languages that already have a Bible. **Start** opens a project for it.
 1. **Language** (in the app): name, code, writing system, and grammar and spelling notes for the AI.
 2. **Word list**: key words in the language, such as God, Lord, Jesus, spirit, sin, forgive and kingdom. The AI uses them exactly.
 3. **Sample verses**: a speaker translates verses, shown one at a time beside the KJV. Mark is a good place to start; 50 to 100 verses make a useful first set.
@@ -15,6 +16,18 @@ Nothing here is published as Scripture. Every AI verse is marked as a draft unti
 7. **Export**: download the approved chapters for the Bible app.
 
 The app keeps its work in the browser. **Export → Download project file** saves everything to one file, which is both the backup and the input to the drafting tool.
+
+## Practise and check the method
+A language with no Bible can't be checked against anything, so we practise on a related language that has one. We pretend a speaker has given only the first verses of Mark, draft the rest, and score the drafts against the real translation:
+```
+python3 tools/practice.py ong-ong                 # Olo, a relative of Agi (Papua New Guinea)
+python3 tools/draft.py practice/ong-ong-project.json --test 10
+python3 tools/draft.py practice/ong-ong-project.json "Mark 4:1-20" --answers practice/ong-ong-answers.json
+```
+Scores are chrF (0 to 100, character overlap with the real translation). Use them to compare methods and prompts, and to decide how many sample verses a speaker needs to give before drafts are worth reviewing. The score never replaces speakers' review.
+
+## Working together
+Many people, each with their own AI agent, can work on different languages and chapters at once, Wikipedia-style. See [CONTRIBUTING.md](CONTRIBUTING.md) for roles, claiming work, and the rule that two speakers confirm every verse.
 
 ## Run the app
 ```
@@ -32,6 +45,41 @@ Drafts are saved to `drafts/<language>/`. Open them in the app under **Review dr
 
 ## Adding a confirmed language to the Bible app
 **Export → Download approved chapters** writes `<code>-draft.json` with books keyed by KJV book index, in the Bible app's `data/texts` format. Only chapters with every verse approved are included, and each book stops at its first chapter that is not fully approved, because the app lines verses up by position.
+
+## Refreshing the language list
+```
+python3 tools/languages/build_needs.py
+```
+It downloads the sources below and rewrites `data/languages-needing.json`.
+
+## Sources
+Every source this project uses. Add new ones here in the same pull request that starts using them.
+
+| What | Source | License / terms | Used for |
+| --- | --- | --- | --- |
+| Languages still needing a Bible, Bible status, recording links | [Joshua Project](https://joshuaproject.net) language data, via the [joshua-project-data](https://github.com/lukeslp/joshua-project-data) mirror (fetched Dec 2025). BibleStatus codes from the [Joshua Project API docs](https://api.joshuaproject.net/v1/docs/column_descriptions/people_groups) | Free for non-commercial use with the credit "Data provided by Joshua Project" ([terms](https://joshuaproject.net/help/terms)); mirror code MIT | `data/languages-needing.json` |
+| Language families and relatives | [Glottolog](https://glottolog.org) via [glottolog-cldf](https://github.com/glottolog/glottolog-cldf) | CC BY 4.0 | Family, subgroup, closest related languages |
+| Which languages have a Bible, and their texts | [eBible.org](https://ebible.org) via the [eBible corpus](https://github.com/BibleNLP/ebible) (metadata/translations.csv, corpus/) | Only texts eBible marks as redistributable; each text keeps its own license | Related languages, practice projects |
+| Recordings of speakers | [Global Recordings Network](https://globalrecordings.net) (links per language) | Linked, not copied | Hearing the language, finding speakers |
+| Global figures (544 languages waiting, 36.8M people) | [Wycliffe Global Alliance, 2025 statistics](https://www.wycliffe.net/2025-global-scripture-access-statistics/) | Cited | Context |
+| KJV, Greek TR, Hebrew WLC | BibleApp's `data/` (see Texts and credits) | Public domain; verse map CC BY 4.0 | Source texts for drafting |
+| Background survey | [AI Bible Translation Tools: Landscape Survey](https://claude.ai/code/artifact/a7c98145-d23d-4657-a360-787a9021dc97) | Project document | Choosing approach and partners |
+
+Joshua Project counts 487 living languages with a translation need and nothing started (Wycliffe counts 544 using ProgressBible data). The two lists differ a little; when a language's status is in doubt, check with the partners below.
+
+## Partners and related tools
+Groups and tools we plan to build on or work with. Add any new contact or tool here.
+
+| Who | What they offer | How it fits |
+| --- | --- | --- |
+| [SIL](https://www.sil.org) / [Scripture Forge](https://scriptureforge.org) / [Serval](https://github.com/sillsdev/serval) | Open-source MT drafting used in about 500 translation projects | Fine-tuned drafting once a language has thousands of verses |
+| [Paratext](https://paratext.org) | The standard translation editor; registry of vetted translation organizations | Exporting confirmed text (USFM) to professional teams |
+| [ETEN Innovation Lab](https://www.etenlab.org) | Funds and pilots AI translation tools (Fluent, Aquilla) | Possible funding and partnership |
+| [Global Recordings Network](https://globalrecordings.net) | Recordings in thousands of languages, made with native speakers | Finding speakers; audio of the language |
+| [unfoldingWord](https://unfoldingword.org) | Translation notes, key terms and Open Bible Stories (CC BY-SA) | Word-list and key-term guidance for speakers |
+| [Clear.Bible MACULA](https://github.com/Clear-Bible) | Greek and Hebrew syntax and glosses (CC BY 4.0) | Richer source context for drafting |
+| [Joshua Project](https://joshuaproject.net) | People group and language data | Keeping the language list current |
+| [Wycliffe Global Alliance](https://www.wycliffe.net) / [ProgressBible](https://progress.bible) | Authoritative translation status | Confirming which languages truly need a start |
 
 ## Texts and credits
 - **KJV**: 1769 text, public domain (`data/kjv.json`, from BibleApp).
