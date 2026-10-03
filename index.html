@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Bible Translate</title>
+<meta name="description" content="AI-assisted Bible translation into languages that don't have one yet, with speaker input and human review.">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<header class="bar">
+  <h1>Bible Translate</h1>
+  <span id="lang-label" class="muted"></span>
+</header>
+
+<nav class="tabs" role="tablist">
+  <button role="tab" data-tab="language" aria-selected="true">Language</button>
+  <button role="tab" data-tab="words">Word list</button>
+  <button role="tab" data-tab="samples">Sample verses</button>
+  <button role="tab" data-tab="review">Review drafts</button>
+  <button role="tab" data-tab="export">Export</button>
+</nav>
+
+<main>
+  <!-- Language -->
+  <section id="tab-language" class="tab">
+    <p class="lead">Start with the language you are translating into. A speaker of the language then adds a word list and a few translated verses, the AI drafts more verses from those examples, and people who speak the language review every draft.</p>
+    <form id="lang-form" class="card">
+      <label>Language name <input name="name" required placeholder="e.g. Kwara'ae"></label>
+      <label>Language code (ISO 639-3, if known) <input name="code" placeholder="e.g. kwf" maxlength="8"></label>
+      <label>Writing system <input name="script" placeholder="e.g. Latin letters"></label>
+      <label>Direction
+        <select name="dir"><option value="ltr">Left to right</option><option value="rtl">Right to left</option></select>
+      </label>
+      <label>Where it is spoken <input name="region" placeholder="e.g. Malaita, Solomon Islands"></label>
+      <label>Related or trade language speakers also know <input name="related" placeholder="e.g. Solomon Islands Pijin"></label>
+      <label>Grammar and spelling notes for the AI
+        <textarea name="notes" rows="6" placeholder="Word order, how plurals and tenses work, spelling conventions, words to avoid…"></textarea>
+      </label>
+      <button class="primary" type="submit">Save</button>
+    </form>
+  </section>
+
+  <!-- Word list -->
+  <section id="tab-words" class="tab" hidden>
+    <p class="lead">Key words in the language. The AI uses these exactly, so start with names and Bible terms: God, Lord, Jesus, spirit, sin, forgive, love, kingdom, heaven.</p>
+    <form id="word-form" class="card row-form">
+      <input name="en" required placeholder="English word">
+      <input name="word" required placeholder="Word in the language" class="target">
+      <input name="notes" placeholder="Notes (optional)">
+      <button class="primary" type="submit">Add</button>
+    </form>
+    <table class="list-table">
+      <thead><tr><th>English</th><th>Language</th><th>Notes</th><th></th></tr></thead>
+      <tbody id="word-list"></tbody>
+    </table>
+    <p id="word-empty" class="muted">No words yet.</p>
+  </section>
+
+  <!-- Sample verses -->
+  <section id="tab-samples" class="tab" hidden>
+    <p class="lead">Verses translated by a speaker. These teach the AI how the language works. The Gospel of Mark is a good place to start; 50 to 100 verses make a useful first set.</p>
+    <div class="card">
+      <form id="ref-form" class="row-form">
+        <input name="ref" required placeholder="Reference, e.g. Mark 1:1" value="Mark 1:1">
+        <button class="secondary" type="submit">Show</button>
+        <button class="secondary" type="button" id="ref-next">Next verse ›</button>
+      </form>
+      <p id="ref-kjv" class="source"></p>
+      <form id="sample-form" hidden>
+        <label>Speaker's translation <textarea name="text" rows="3" required class="target"></textarea></label>
+        <label>Translated by <input name="by" placeholder="Name of the speaker"></label>
+        <button class="primary" type="submit">Save verse</button>
+      </form>
+    </div>
+    <h2>Saved verses <span id="sample-count" class="muted"></span></h2>
+    <ul id="sample-list" class="verse-list"></ul>
+    <p id="sample-empty" class="muted">No sample verses yet.</p>
+  </section>
+
+  <!-- Review -->
+  <section id="tab-review" class="tab" hidden>
+    <p class="lead">Open draft files made by the drafting tool (<code>tools/draft.py</code>). Check each verse's English back-translation against the KJV, correct the wording, then approve it or mark it for more work. Approved verses become examples for the next drafts.</p>
+    <div class="card row-form">
+      <label class="file-btn secondary">Open draft files<input id="draft-files" type="file" accept=".json,application/json" multiple hidden></label>
+      <label>Reviewer <input id="reviewer" placeholder="Your name"></label>
+    </div>
+    <div id="drafts"></div>
+    <p id="drafts-empty" class="muted">No drafts opened yet.</p>
+  </section>
+
+  <!-- Export -->
+  <section id="tab-export" class="tab" hidden>
+    <div class="card">
+      <h2>Project file</h2>
+      <p>Everything above in one file. The drafting tool reads it, and it is also your backup: this app keeps your work only in this browser.</p>
+      <div class="row-form">
+        <button class="primary" id="export-project">Download project file</button>
+        <label class="file-btn secondary">Open project file<input id="import-project" type="file" accept=".json,application/json" hidden></label>
+      </div>
+    </div>
+    <div class="card">
+      <h2>For the Bible app</h2>
+      <p>Approved chapters in the format the free Bible app reads. Each book is included from chapter 1 up to its first chapter that is not fully approved, because the app lines verses up by position.</p>
+      <button class="primary" id="export-bibleapp">Download approved chapters</button>
+      <p id="export-summary" class="muted"></p>
+    </div>
+    <div class="card danger">
+      <h2>Start over</h2>
+      <p>Clears this project from this browser. Download the project file first.</p>
+      <button class="secondary" id="reset">Clear project</button>
+    </div>
+  </section>
+</main>
+
+<div id="toast" role="status" aria-live="polite"></div>
+<script src="js/app.js"></script>
+</body>
+</html>
