@@ -43,6 +43,14 @@ python3 tools/draft.py my-language-project.json "Mark 1:16-20"
 ```
 Drafts are saved to `drafts/<language>/`. Open them in the app under **Review drafts**. Add `--dry-run` to see the prompt without calling the API. The tool uses Claude Opus 5.5; if a safety check declines a request, the API retries on Anthropic's recommended fallback model.
 
+### How a draft is checked before speakers see it
+1. **Examples chosen for coverage.** Up to 40 speaker verses are picked so that together they cover the passage's key words (English, Greek and Hebrew), plus the verses just before the passage so names and pronouns stay consistent. Confirmed verses are trusted most.
+2. **Blind back-translation.** A second, separate request translates the draft back into English without seeing the KJV. The app shows what share of the verse's key words came back. A low score means the meaning may have drifted.
+3. **Automatic checks** (`tools/checks.py`): repeated words, mixed writing systems, punctuation and quote problems, agreed key terms missing from the draft, and words no speaker has used yet (with likely misspellings).
+4. **Every draft records** the model, the prompt version and the date, so results can be compared when the method changes.
+
+None of these replace speakers. They point reviewers at the verses that need the closest look.
+
 ## Adding a confirmed language to the Bible app
 **Export → Download approved chapters** writes `<code>-draft.json` with books keyed by KJV book index, in the Bible app's `data/texts` format. Only chapters with every verse approved are included, and each book stops at its first chapter that is not fully approved, because the app lines verses up by position.
 
@@ -103,6 +111,18 @@ Checked 2026-10-03 (license from each repo; "last active" is its latest commit).
 GPL tools such as [translationCore](https://github.com/unfoldingWord) and [BTT Writer](https://github.com/Bible-Translation-Tools/BTT-Writer-Desktop) are useful references, but their code can't be copied into this MIT-style project without relicensing.
 
 Most of these tools read and write **USFM**, so exporting confirmed text as USFM is the planned next step for sharing with Paratext and other teams.
+
+### Ideas we took from other projects
+Our own code, written after reading theirs; no code was copied.
+
+| Idea | From |
+| --- | --- |
+| Pick examples that cover the passage's words; include the verses just before it | [Codex](https://github.com/genesis-ai-dev/codex-editor) (MIT) |
+| Blind back-translation as a separate step | [Codex](https://github.com/genesis-ai-dev/codex-editor), [Fluent](https://github.com/eten-tech-foundation/fluent-web) |
+| Mechanical checks and a sound-aware spelling distance | [Greek Room](https://github.com/BibleNLP/greek-room) (BSD-3) |
+| The person who edits a verse can't also count as one of its two approvers; reasons required for "needs work"; full history per verse | [LangQuest](https://github.com/genesis-ai-dev/langquest), [Fluent](https://github.com/eten-tech-foundation/fluent-web) |
+| Log the model and prompt version with every draft | [Fluent](https://github.com/eten-tech-foundation/fluent-web), [LangQuest](https://github.com/genesis-ai-dev/langquest) |
+| Planned: per-verse Translation Notes, key words and a simplified text from unfoldingWord in the prompt (CC BY-SA) | [BT Servant](https://github.com/unfoldingWord/bt-servant-worker) |
 
 Research worth following: retrieval with more context helps most in extremely low-resource translation ([arXiv 2601.09982](https://arxiv.org/abs/2601.09982)), and closely related languages can guide translation ([arXiv 2603.16660](https://arxiv.org/abs/2603.16660)).
 

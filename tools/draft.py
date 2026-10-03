@@ -17,9 +17,11 @@ Usage:
 import argparse
 import datetime
 import json
+import math
 import os
 import re
 import sys
+import unicodedata
 from collections import Counter
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -27,7 +29,8 @@ ROOT = os.path.join(HERE, "..")
 DATA = os.path.join(ROOT, "data")
 
 MODEL = "claude-opus-5-5"
-MAX_EXAMPLES = 60   # sample verses put in each prompt, most relevant first
+PROMPT_VERSION = "2026-10-03.2"   # bump when SYSTEM, the prompt layout or example selection changes
+MAX_EXAMPLES = 40   # example verses per prompt (Codex found 15 vs 30 made no significant difference)
 NOTICE = ("AI DRAFT - NOT REVIEWED. Machine-generated translation for speakers of the language "
           "to check, correct and approve. Do not publish or quote as Scripture.")
 
@@ -38,6 +41,8 @@ How to translate:
 - Imitate the speakers' examples closely: their vocabulary, spelling, word order, particles and sentence patterns. Use word-list terms exactly as given, every time.
 - When a word you need is not in the examples or the word list, use the closest form the examples support, or a loanword from the related language if one is named, and say so in the notes. Never invent words silently.
 - Use natural, everyday language. Do not add explanation or commentary inside the verse.
+- Examples marked "confirmed" were approved by two speakers: trust them most. When the examples and your own knowledge of the language disagree, follow the examples. When in doubt, stay closer to the examples' patterns than to English word order.
+- Keep names, pronouns and connecting words consistent with the verses just before the passage.
 
 For each verse return:
 - translation: the draft in the language, in its usual writing system.
@@ -66,6 +71,17 @@ SCHEMA = {
     },
     "required": ["verses"],
     "additionalProperties": False,
+}
+
+BT_SYSTEM = """You check Bible translation drafts in a language that has little written material. You are shown verses in that language and examples of the language with English. You are NOT shown the English or Greek of the verses to check, on purpose: translate each verse into literal English from the language alone, so reviewers can see whether it really says what it should. Where you cannot tell what a word means from the examples, write [?word] instead of guessing."""
+
+BT_SCHEMA = {
+    "type": "object",
+    "properties": {"verses": {"type": "array", "items": {
+        "type": "object",
+        "properties": {"verse": {"type": "integer"}, "back_translation": {"type": "string"}},
+        "required": ["verse", "back_translation"], "additionalProperties": False}}},
+    "required": ["verses"], "additionalProperties": False,
 }
 
 _cache = {}
@@ -135,28 +151,69 @@ def examples_from(project):
     """Speaker samples plus reviewer-approved draft verses, keyed (b, c, v). The speaker's own text wins."""
     out = {}
     for item in project.get("approved", []):
-        out[(item["b"], item["c"], item["v"])] = (item["text"], "approved draft")
+        label = "confirmed draft" if item.get("confirmed") else "draft approved by one speaker"
+        out[(item["b"], item["c"], item["v"])] = (item["text"], label)
     for s in project.get("samples", []):
         out[(s["b"], s["c"], s["v"])] = (s["text"], "speaker")
     return out
 
 
-def words(text):
-    return {w for w in re.findall(r"[a-z]+", text.lower()) if len(w) > 3}
+STOP = set("""the and that shall unto for his him they them their there this with from which were have will
+not but all when then said thou thee thy also into what upon your you are was had hath been ye him her she its
+them these those who whom whose come came went one our out let any may might should would could did does doth""".split())
+
+
+def norm(word):
+    """Lower-case and strip accents and vowel points, so Greek and Hebrew word forms compare cleanly."""
+    return "".join(ch for ch in unicodedata.normalize("NFD", word.lower()) if not unicodedata.combining(ch))
+
+
+def tokens(b, c, v):
+    """Content words of a verse in the KJV and in the Greek/Hebrew, for matching examples to targets."""
+    out = {w for w in re.findall(r"[a-z]+", kjv_verse(b, c, v).lower()) if len(w) > 2 and w not in STOP}
+    out = {re.sub(r"(eth|est|ed|s)$", "", w) or w for w in out}   # loves/loveth/loved -> lov
+    orig = original(b, c, v)[1]
+    if orig:
+        out |= {"§" + norm(w) for w in re.findall(r"\w+", orig) if len(w) > 1}
+    return out
 
 
 def pick_examples(examples, targets, limit=MAX_EXAMPLES):
-    """The examples most useful for these target verses: same chapter first, then shared English words."""
-    want = set().union(*(words(kjv_verse(*t)) for t in targets))
-    tb, tc = targets[0][0], targets[0][1]
+    """Choose examples that together cover every word of the target verses (an idea from Codex Translation
+    Editor's "smart branched search"), then the verses just before the passage, then the closest by overlap.
 
-    def score(key):
-        b, c, v = key
-        near = 3 if (b, c) == (tb, tc) else 1 if b == tb else 0
-        return (near, len(want & words(kjv_verse(b, c, v))))
+    With only 50-100 sample verses, covering each phrase once beats piling up near-duplicates."""
+    pool = [k for k in examples if k not in targets]
+    if not pool:
+        return []
+    toks = {k: tokens(*k) for k in pool}
+    df = Counter(t for k in pool for t in toks[k])
+    idf = {t: math.log((len(pool) + 1) / (n + 0.5)) for t, n in df.items()}
+    want = set().union(*(tokens(*t) for t in targets))
+    chosen = []
 
-    keys = sorted((k for k in examples if k not in targets), key=score, reverse=True)[:limit]
-    return sorted(keys)
+    # 1. Greedy coverage: each pick adds the most not-yet-covered target words, rarest weighted highest.
+    left = {t for t in want if t in df}
+    while left and len(chosen) < limit // 2:
+        best = max(pool, key=lambda k: (sum(idf[t] for t in toks[k] & left), -abs(k[2] - targets[0][2])))
+        gain = toks[best] & left
+        if not gain:
+            break
+        chosen.append(best)
+        left -= gain
+        pool.remove(best)
+
+    # 2. Context: up to five verses right before the passage, for names, pronouns and connectives.
+    tb, tc, tv = targets[0]
+    for v in range(max(1, tv - 5), tv):
+        if (tb, tc, v) in pool and len(chosen) < limit:
+            chosen.append((tb, tc, v))
+            pool.remove((tb, tc, v))
+
+    # 3. Fill with the most similar remaining verses.
+    pool.sort(key=lambda k: (sum(idf[t] for t in toks[k] & want), (k[0], k[1]) == (tb, tc)), reverse=True)
+    chosen += pool[:limit - len(chosen)]
+    return sorted(chosen)
 
 
 def build_prompt(project, examples, targets):
@@ -197,7 +254,7 @@ def build_prompt(project, examples, targets):
 
 # ---------- Claude ----------
 
-def call_claude(prompt):
+def call_claude(prompt, system=SYSTEM, schema=SCHEMA):
     import anthropic   # imported here so --dry-run works without the SDK installed
 
     client = anthropic.Anthropic()
@@ -205,10 +262,10 @@ def call_claude(prompt):
         response = client.beta.messages.create(
             model=MODEL,
             max_tokens=16000,
-            system=SYSTEM,
+            system=system,
             messages=[{"role": "user", "content": prompt}],
             thinking={"type": "adaptive"},
-            output_config={"effort": "high", "format": {"type": "json_schema", "schema": SCHEMA}},
+            output_config={"effort": "high", "format": {"type": "json_schema", "schema": schema}},
             betas=["server-side-fallback-2026-07-01"],
             fallbacks="default",   # if a safety classifier declines, retry on Anthropic's recommended model
         )
@@ -226,6 +283,46 @@ def call_claude(prompt):
         sys.exit("The draft was cut off; try fewer verses at a time.")
     text = next(b.text for b in response.content if b.type == "text")
     return {d["verse"]: d for d in json.loads(text)["verses"]}, response.model
+
+
+def independent_back_translation(project, examples, drafted, targets):
+    """A second, separate call that sees only the drafts and the language examples, never the source or KJV.
+    The first call's back-translation can simply echo what it meant to say; this one shows what the words say.
+    (Codex Translation Editor also back-translates in a separate step.)"""
+    name = project["language"].get("name") or "the language"
+    lines = [f"Language: {name}", ""]
+    if project.get("wordlist"):
+        lines.append("Word list (English = word in the language):")
+        lines += [f"- {w['en']} = {w['word']}" for w in project["wordlist"]]
+        lines.append("")
+    lines.append(f"Examples of {name} with their English meaning:")
+    for b, c, v in pick_examples(examples, targets):
+        lines += [f"- {examples[(b, c, v)][0]}", f"  English: {kjv_verse(b, c, v)}"]
+    lines += ["", "Verses to translate into literal English:"]
+    lines += [f"Verse {v}: {drafted[v]['translation']}" for _, _, v in targets if v in drafted]
+    result, _ = call_claude("\n".join(lines), BT_SYSTEM, BT_SCHEMA)
+    return {v: d["back_translation"] for v, d in result.items()}
+
+
+def add_checks(project, examples, rec, drafted, targets, independent):
+    """Automatic checks, plus the independent back-translation compared with the KJV."""
+    import checks   # tools/checks.py
+    checks.check_draft(project, rec)
+    if not independent:
+        return
+    blind = independent_back_translation(project, examples, drafted, targets)
+    for item in rec["verses"]:
+        bt = blind.get(item["verse"])
+        if not bt:
+            continue
+        item["independent_back_translation"] = bt
+        # Share of the KJV verse's content words that the blind back-translation also has (0-100).
+        want = {t for t in tokens(item["book"], item["chapter"], item["verse"]) if not t.startswith("§")}
+        got = {re.sub(r"(eth|est|ed|s)$", "", w) or w for w in re.findall(r"[a-z]+", bt.lower())}
+        item["meaning_match"] = round(100 * len(want & got) / len(want)) if want else None
+        if item["meaning_match"] is not None and item["meaning_match"] < 50:
+            item["checks"].append(f"The independent back-translation has only {item['meaning_match']}% of the "
+                                  f"verse's key words; something may be missing or changed")
 
 
 # ---------- Scoring ----------
@@ -263,6 +360,7 @@ def draft_record(project, title, targets, drafted, served_by, examples_used):
         "target_language": project["language"].get("name", ""),
         "language_code": project["language"].get("code", ""),
         "model": served_by,
+        "prompt_version": PROMPT_VERSION,
         "created": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"),
         "examples_used": examples_used,
         "verses": [{
@@ -274,7 +372,7 @@ def draft_record(project, title, targets, drafted, served_by, examples_used):
     }
 
 
-def run_passage(project, examples, passage, dry_run, answers=None):
+def run_passage(project, examples, passage, dry_run, answers=None, independent=True):
     b, c, verses = parse_passage(passage)
     targets = [(b, c, v) for v in verses]
     prompt = build_prompt(project, examples, targets)
@@ -287,6 +385,7 @@ def run_passage(project, examples, passage, dry_run, answers=None):
         print(f"Warning: no draft returned for verse(s) {missing}.", file=sys.stderr)
     title = f"{load('kjv.json')[b][0]} {c}:{verses[0]}" + (f"-{verses[-1]}" if len(verses) > 1 else "")
     rec = draft_record(project, title, targets, drafted, served_by, len(pick_examples(examples, targets)))
+    add_checks(project, examples, rec, drafted, targets, independent)
     if answers:   # practice run: score each draft against the published translation
         scores = []
         for item in rec["verses"]:
@@ -301,7 +400,7 @@ def run_passage(project, examples, passage, dry_run, answers=None):
     return rec
 
 
-def run_test(project, examples, count, dry_run):
+def run_test(project, examples, count, dry_run, independent=True):
     """Draft held-back speaker verses from the rest; compare with the speaker's own translation."""
     speaker = sorted(k for k, (_, src) in examples.items() if src == "speaker")
     if len(speaker) < 2:
@@ -320,6 +419,7 @@ def run_test(project, examples, count, dry_run):
             continue
         drafted, served_by = call_claude(prompt)
         rec = draft_record(project, "", targets, drafted, served_by, len(pick_examples(rest, targets)))
+        add_checks(project, rest, rec, drafted, targets, independent)
         for item in rec["verses"]:
             expected = examples[(item["book"], item["chapter"], item["verse"])][0]
             item["expected"] = expected
@@ -342,6 +442,8 @@ def main():
     ap.add_argument("project", help="project file exported from the Bible Translate app")
     ap.add_argument("passage", nargs="?", help="passage in KJV numbering, one chapter at a time, e.g. 'Mark 1:16-20'")
     ap.add_argument("--test", type=int, metavar="N", help="hold back N speaker verses and score the drafts")
+    ap.add_argument("--no-blind-check", action="store_true",
+                    help="skip the independent back-translation (halves the cost, loses the meaning check)")
     ap.add_argument("--answers", help="practice runs: answers file from tools/practice.py to score the drafts")
     ap.add_argument("--out", help="output JSON path (default: drafts/<language>/...)")
     ap.add_argument("--dry-run", action="store_true", help="print the prompt and exit without calling the API")
@@ -355,9 +457,10 @@ def main():
         sys.exit("That is not a project file from the Bible Translate app.")
     examples = examples_from(project)
 
-    result = (run_test(project, examples, args.test, args.dry_run) if args.test
+    independent = not args.no_blind_check
+    result = (run_test(project, examples, args.test, args.dry_run, independent) if args.test
               else run_passage(project, examples, args.passage, args.dry_run,
-                               json.load(open(args.answers, encoding="utf-8")) if args.answers else None))
+                               json.load(open(args.answers, encoding="utf-8")) if args.answers else None, independent))
     if result is None:
         return
 
@@ -378,6 +481,10 @@ def main():
             print(f"    speaker's version: {d['expected']}")
         for n in d["notes"]:
             print(f"    - {n}")
+        if d.get("independent_back_translation"):
+            print(f"    independent back-translation: {d['independent_back_translation']}  (match {d['meaning_match']})")
+        for c in d.get("checks", []):
+            print(f"    ! {c}")
         print()
     if "test" in result:
         print(f"Average match: {result['test']['average_score']} / 100 ({result['test']['metric']})")

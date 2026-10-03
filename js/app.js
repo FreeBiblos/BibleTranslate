@@ -199,12 +199,15 @@
     return `<div class="verse ${status}" data-d="${di}" data-v="${vi}">
       <div><span class="ref">${esc(v.ref || `${d.passage.replace(/:.*$/, '')}:${v.verse}`)}</span>
         <span class="chip ${esc(v.confidence)}">${esc(v.confidence)} confidence</span>
-        <span class="chip st ${status}">${status === 'approved' ? (confirmed(v) ? 'confirmed' : `approved by ${approvals(v).length} of ${CONFIRM}`) : status.replace('-', ' ')}</span>
+        <span class="chip st ${status}">${status === 'approved' ? (confirmed(v) ? 'confirmed' : `approved by ${independent(v).length} of ${CONFIRM}`) : status.replace('-', ' ')}</span>
         ${approvals(v).length ? `<span class="muted small">${approvals(v).map((a) => esc(a.reviewer)).join(', ')}</span>` : ''}
+        ${r.edited_by ? `<span class="muted small">wording by ${esc(r.edited_by)}</span>` : ''}
         ${v.score != null ? `<span class="chip">match ${Math.round(v.score)}</span>` : ''}</div>
       <p class="kjv">${esc(v.kjv)}</p>
       <textarea class="target" rows="2" data-field="text" ${targetAttrs()}>${esc(text)}</textarea>
       <p class="bt"><b>Back-translation</b> ${esc(v.back_translation)}</p>
+      ${v.independent_back_translation ? `<p class="bt"><b>Independent back-translation</b> ${esc(v.independent_back_translation)}${v.meaning_match != null ? ` <span class="muted small">(${v.meaning_match}% of the verse's key words)</span>` : ''}</p>` : ''}
+      ${(v.checks || []).length ? `<ul class="checks">${v.checks.map((c) => `<li>${esc(c)}</li>`).join('')}</ul>` : ''}
       ${v.expected ? `<p class="expected"><b>Speaker's own translation</b> <span ${targetAttrs()}>${esc(v.expected)}</span></p>` : ''}
       ${(v.notes || []).length ? `<ul class="notes">${v.notes.map((n) => `<li>${esc(n)}</li>`).join('')}</ul>` : ''}
       <div class="controls">
@@ -236,8 +239,14 @@
   // Like Wikipedia, anyone can edit, but a verse is only confirmed once two different speakers approve
   // the same wording. Changing the wording clears earlier approvals.
   const CONFIRM = 2;
+  // The person who wrote the current wording can approve it, but two OTHER speakers must confirm it
+  // (Fluent keeps drafter and checker separate for the same reason).
   const approvals = (v) => (v.review && v.review.approvals) || [];
-  const confirmed = (v) => v.review && v.review.status === 'approved' && approvals(v).length >= CONFIRM;
+  const independent = (v) => approvals(v).filter((a) => a.reviewer !== (v.review && v.review.edited_by));
+  const confirmed = (v) => v.review && v.review.status === 'approved' && independent(v).length >= CONFIRM;
+  const logEvent = (v, action, extra) => {
+    v.review.history = (v.review.history || []).concat({ at: new Date().toISOString(), who: P.reviewer || null, action, ...extra });
+  };
   $('#drafts').addEventListener('click', (e) => {
     const t = e.target;
     if (t.dataset.dl) {
@@ -257,12 +266,16 @@
     const who = ($('#reviewer').value || '').trim();
     if (!who) { toast('Enter your name as reviewer first'); $('#reviewer').focus(); return; }
     P.reviewer = who;
+    const comment = $('[data-field="comments"]', box).value.trim();
+    if (act === 'needs-work' && !comment) { toast('Say what needs work in the comment box'); $('[data-field="comments"]', box).focus(); return; }
     const before = (v.review && v.review.approved_text) ?? v.translation;
     let list = text === before ? approvals(v) : [];
     if (act === 'approved') list = list.filter((a) => a.reviewer !== who).concat({ reviewer: who, at: new Date().toISOString() });
     else list = list.filter((a) => a.reviewer !== who);
     setReview(di, vi, { status: list.length ? 'approved' : act, reviewer: who, approved_text: text, approvals: list,
-      comments: $('[data-field="comments"]', box).value.trim() || null });
+      comments: comment || null });
+    logEvent(v, act === 'approved' ? 'approved' : 'needs work', { text, comment: comment || undefined });
+    save();
     box.outerHTML = verseHTML(P.drafts[di], di, P.drafts[di].verses[vi], vi);
     const head = $$('.draft')[di];
     const d = P.drafts[di];
@@ -273,7 +286,11 @@
     if (!box) return;
     const field = e.target.dataset.field;
     if (field === 'text') {
-      setReview(+box.dataset.d, +box.dataset.v, { approved_text: e.target.value.trim(), approvals: [], status: 'pending' });
+      const v = P.drafts[+box.dataset.d].verses[+box.dataset.v];
+      setReview(+box.dataset.d, +box.dataset.v, { approved_text: e.target.value.trim(), approvals: [], status: 'pending',
+        edited_by: ($('#reviewer').value || '').trim() || null });
+      logEvent(v, 'edited', { text: e.target.value.trim() });
+      save();
       // Update in place: re-rendering here would swallow a click on Approve that caused this change.
       const st = $('.chip.st', box);
       st.className = 'chip st pending'; st.textContent = 'edited, needs approval';
@@ -300,9 +317,10 @@
 
   // ---------- Export ----------
   $('#export-project').addEventListener('click', () => {
+    const sure = approvedVerses(true);
     const data = { ...P, exported: new Date().toISOString(), approved: [...approvedVerses()].map(([k, text]) => {
       const [b, c, v] = k.split(':').map(Number);
-      return { b, c, v, text };
+      return { b, c, v, text, confirmed: sure.get(k) === text };
     }) };
     download(`${slug(P.language.name)}-project.json`, data);
   });

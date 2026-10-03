@@ -26,6 +26,9 @@ Bible Translate works like Wikipedia: anyone can help, every change is signed an
 - **AI drafts are drafts.** Never publish or quote one as Scripture before it is confirmed.
 - **Speakers decide.** When a speaker and the AI disagree, the speaker wins. When two speakers disagree, the steward decides, in the open on the issue.
 - **Changing the wording clears approvals**, so both speakers always approved the same text.
+- **Two independent speakers.** The speaker who last changed a verse's wording can approve it, but that approval doesn't count toward the two.
+- **Say why.** Marking a verse "needs work" requires a comment, and every edit, approval and objection is kept in the verse's history.
+- **Look hardest where the checks point.** A low back-translation match or an automatic check finding means a verse needs extra care, not that it is wrong.
 - **Keep everything traceable.** Drafts record the model and date, approvals record who approved and when, and git history keeps every earlier version.
 - **Respect sources.** Use only texts and recordings whose licenses allow it, and add each new source to the README's Sources section in the same pull request.
 - **Practise before you trust.** For a new method or prompt change, run `tools/practice.py` on related languages that already have a Bible and compare scores before using it on a real language.
