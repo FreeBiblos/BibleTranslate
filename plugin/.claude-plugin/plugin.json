@@ -1,0 +1,10 @@
+{
+  "name": "bible-translate",
+  "version": "0.1.0",
+  "description": "Donate your Claude session to Bible Translate: draft and check Bible verses for languages that have no Bible yet, then send the results back as a pull request.",
+  "author": {
+    "name": "FreeBiblos"
+  },
+  "homepage": "https://github.com/FreeBiblos/BibleTranslate",
+  "repository": "https://github.com/FreeBiblos/BibleTranslate"
+}

@@ -1,0 +1,14 @@
+{
+  "name": "freebiblos",
+  "description": "Bible Translate: help translate the Bible into languages that have none yet",
+  "owner": {
+    "name": "FreeBiblos"
+  },
+  "plugins": [
+    {
+      "name": "bible-translate",
+      "source": "./plugin",
+      "description": "Donate your Claude session to drafting and checking Bible verses for languages with no Bible yet"
+    }
+  ]
+}

@@ -29,6 +29,19 @@ Scores are chrF (0 to 100, character overlap with the real translation). Use the
 ## Working together
 Many people, each with their own AI agent, can work on different languages and chapters at once, Wikipedia-style. See [CONTRIBUTING.md](CONTRIBUTING.md) for roles, claiming work, and the rule that two speakers confirm every verse.
 
+## Volunteer your Claude
+Anyone with Claude Code can donate their own Claude usage to this project. No API key is needed: the work runs on your Claude plan. In Claude Code, run:
+```
+/plugin marketplace add FreeBiblos/BibleTranslate
+/plugin install bible-translate@freebiblos
+/bible-translate:volunteer 3
+```
+The number is how many tasks to do (default 1, at most 10). Each task picks a language that has a Bible and is closely related to one that doesn't, drafts about eight verses of Mark from its first 60 verses, and scores the drafts against the published text. One task in five is a control run with no examples, which shows how much of the language Claude already knew. Each draft is written by a fresh subagent that reads only the prompt file. A second fresh subagent back-translates it without seeing the English or Greek, and then the automatic checks run. Results come back as a pull request adding files to `results/practice/`. Without the GitHub CLI, the command gives web upload steps instead.
+
+Working inside a copy of this repository, `/volunteer` does the same. To see the scores so far, run `python3 tools/volunteer.py report`.
+
+The command uses `tools/volunteer.py`, which writes the prompts and checks the answers but never calls an API. For a real language project, `tools/volunteer.py start --project projects/<code>.json --passage "Mark 2:1-12"` drafts a passage the same way.
+
 ## Run the app
 ```
 python3 -m http.server 8000

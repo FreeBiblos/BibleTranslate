@@ -285,10 +285,9 @@ def call_claude(prompt, system=SYSTEM, schema=SCHEMA):
     return {d["verse"]: d for d in json.loads(text)["verses"]}, response.model
 
 
-def independent_back_translation(project, examples, drafted, targets):
-    """A second, separate call that sees only the drafts and the language examples, never the source or KJV.
-    The first call's back-translation can simply echo what it meant to say; this one shows what the words say.
-    (Codex Translation Editor also back-translates in a separate step.)"""
+def blind_prompt(project, examples, drafted, targets):
+    """The prompt for the independent back-translation: the drafts and the language examples only,
+    never the source text or the KJV of the verses being checked."""
     name = project["language"].get("name") or "the language"
     lines = [f"Language: {name}", ""]
     if project.get("wordlist"):
@@ -300,17 +299,19 @@ def independent_back_translation(project, examples, drafted, targets):
         lines += [f"- {examples[(b, c, v)][0]}", f"  English: {kjv_verse(b, c, v)}"]
     lines += ["", "Verses to translate into literal English:"]
     lines += [f"Verse {v}: {drafted[v]['translation']}" for _, _, v in targets if v in drafted]
-    result, _ = call_claude("\n".join(lines), BT_SYSTEM, BT_SCHEMA)
+    return "\n".join(lines)
+
+
+def independent_back_translation(project, examples, drafted, targets):
+    """A second, separate call that sees only the drafts and the language examples, never the source or KJV.
+    The first call's back-translation can simply echo what it meant to say; this one shows what the words say.
+    (Codex Translation Editor also back-translates in a separate step.)"""
+    result, _ = call_claude(blind_prompt(project, examples, drafted, targets), BT_SYSTEM, BT_SCHEMA)
     return {v: d["back_translation"] for v, d in result.items()}
 
 
-def add_checks(project, examples, rec, drafted, targets, independent):
-    """Automatic checks, plus the independent back-translation compared with the KJV."""
-    import checks   # tools/checks.py
-    checks.check_draft(project, rec)
-    if not independent:
-        return
-    blind = independent_back_translation(project, examples, drafted, targets)
+def apply_blind(rec, blind):
+    """Store the independent back-translations ({verse: text}) and compare each with the KJV."""
     for item in rec["verses"]:
         bt = blind.get(item["verse"])
         if not bt:
@@ -321,8 +322,17 @@ def add_checks(project, examples, rec, drafted, targets, independent):
         got = {re.sub(r"(eth|est|ed|s)$", "", w) or w for w in re.findall(r"[a-z]+", bt.lower())}
         item["meaning_match"] = round(100 * len(want & got) / len(want)) if want else None
         if item["meaning_match"] is not None and item["meaning_match"] < 50:
-            item["checks"].append(f"The independent back-translation has only {item['meaning_match']}% of the "
-                                  f"verse's key words; something may be missing or changed")
+            item.setdefault("checks", []).append(
+                f"The independent back-translation has only {item['meaning_match']}% of the "
+                f"verse's key words; something may be missing or changed")
+
+
+def add_checks(project, examples, rec, drafted, targets, independent):
+    """Automatic checks, plus the independent back-translation compared with the KJV."""
+    import checks   # tools/checks.py
+    checks.check_draft(project, rec)
+    if independent:
+        apply_blind(rec, independent_back_translation(project, examples, drafted, targets))
 
 
 # ---------- Scoring ----------
@@ -387,17 +397,22 @@ def run_passage(project, examples, passage, dry_run, answers=None, independent=T
     rec = draft_record(project, title, targets, drafted, served_by, len(pick_examples(examples, targets)))
     add_checks(project, examples, rec, drafted, targets, independent)
     if answers:   # practice run: score each draft against the published translation
-        scores = []
-        for item in rec["verses"]:
-            expected = answers.get(f"{item['book']}:{item['chapter']}:{item['verse']}")
-            if expected:
-                item["expected"] = expected
-                item["score"] = round(chrf(item["translation"], expected), 1)
-                scores.append(item["score"])
-        if scores:
-            rec["test"] = {"held_back": len(scores), "average_score": round(sum(scores) / len(scores), 1),
-                           "metric": "chrF (0-100) against the published translation"}
+        score_against(rec, answers)
     return rec
+
+
+def score_against(rec, answers):
+    """Practice runs: score each draft verse against the published translation (answers keyed "b:c:v")."""
+    scores = []
+    for item in rec["verses"]:
+        expected = answers.get(f"{item['book']}:{item['chapter']}:{item['verse']}")
+        if expected:
+            item["expected"] = expected
+            item["score"] = round(chrf(item["translation"], expected), 1)
+            scores.append(item["score"])
+    if scores:
+        rec["test"] = {"held_back": len(scores), "average_score": round(sum(scores) / len(scores), 1),
+                       "metric": "chrF (0-100) against the published translation"}
 
 
 def run_test(project, examples, count, dry_run, independent=True):
