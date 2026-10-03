@@ -58,31 +58,46 @@ def candidates():
         w = 3.0 if lang["status"] == "translation needed" else 1.0
         for r in lang["relatives_with_bible"]:
             if r.get("ebible") and r.get("bible") in ("NT", "complete"):
-                weight[f"{r['code']}-{r['ebible']}"] += w
+                # eBible corpus files are <language>-<translation id>, with "-" in the id written "_"
+                weight[f"{r['code']}-{r['ebible'].replace('-', '_')}"] += w
     return weight
 
 
 def done_counts():
     counts = defaultdict(int)
-    for path in glob.glob(os.path.join(RESULTS, "*.json")):
-        try:
-            counts[json.load(open(path, encoding="utf-8")).get("practice", {}).get("corpus")] += 1
-        except (OSError, ValueError):
-            pass
+    for rec in practice_results():
+        counts[rec["practice"].get("corpus")] += 1
     return counts
+
+
+def practice_results():
+    """Every readable practice result; a damaged or foreign file is skipped, not fatal."""
+    for path in sorted(glob.glob(os.path.join(RESULTS, "*.json"))):
+        try:
+            rec = json.load(open(path, encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if isinstance(rec, dict) and isinstance(rec.get("practice"), dict) and isinstance(rec.get("verses"), list):
+            yield rec
 
 
 def pick_passage(nt, rng):
     """A run of PASSAGE verses in Mark after the speaker's samples."""
     mark = sorted(k for k in nt if k[0] == practice.MARK)
     later = mark[SAMPLES:]
+    kjv_mark = draft.load("kjv.json")[practice.MARK][1]
     chapters = sorted({c for _, c, _ in later if c >= 3})
     for _ in range(20 if chapters else 0):
         c = rng.choice(chapters)
         verses = [k for k in later if k[1] == c]
         # only runs of consecutive verse numbers, so the passage reads as one piece
+        # The last verse must be followed by its next verse (or end the chapter): a missing next verse
+        # means the text merged the two, and the last verse would be scored against both.
+        last_in_chapter = len(kjv_mark[c - 1])
         starts = [i for i in range(len(verses) - PASSAGE + 1)
-                  if verses[i + PASSAGE - 1][2] - verses[i][2] == PASSAGE - 1]
+                  if verses[i + PASSAGE - 1][2] - verses[i][2] == PASSAGE - 1
+                  and ((practice.MARK, c, verses[i + PASSAGE - 1][2] + 1) in nt
+                       or verses[i + PASSAGE - 1][2] == last_in_chapter)]
         if starts:
             i = rng.choice(starts)
             return verses[i:i + PASSAGE]
@@ -161,15 +176,19 @@ def read_answer(path, verses, fields, enums=None):
         sys.exit(f'{path} needs a top-level object with a "verses" list.')
     out = {}
     for item in data["verses"]:
-        if not isinstance(item, dict) or not isinstance(item.get("verse"), int):
+        if not isinstance(item, dict) or not isinstance(item.get("verse"), int) or isinstance(item.get("verse"), bool):
             problems.append(f"an entry without a whole-number verse: {str(item)[:80]}")
             continue
         v = item["verse"]
         if v not in verses:
             problems.append(f"verse {v} wasn't asked for")
+        if v in out:
+            problems.append(f"verse {v} appears more than once")
         for key, kind in fields.items():
             if not isinstance(item.get(key), kind):
                 problems.append(f"verse {v}: {key} is missing or not a {kind.__name__}")
+            elif kind is str and not item[key].strip():
+                problems.append(f"verse {v}: {key} is empty")
         for key, allowed in (enums or {}).items():
             if item.get(key) not in allowed:
                 problems.append(f"verse {v}: {key} must be one of {', '.join(allowed)}")
@@ -215,7 +234,7 @@ def cmd_start(args):
     examples = {} if task.get("control") else draft.examples_from(project)
 
     b, c, _ = targets[0]
-    title = f"{draft.load('kjv.json')[b][0]} {c}:{targets[0][2]}-{targets[-1][2]}"
+    title = f"{draft.load('kjv.json')[b][0]} {c}:{targets[0][2]}" + (f"-{targets[-1][2]}" if len(targets) > 1 else "")
     path = os.path.join(WORK, run)
     os.makedirs(path)
     task.update({"run": run, "language": project["language"].get("name", ""), "passage": title,
@@ -269,6 +288,10 @@ def cmd_finish(args):
         except Exception as e:
             sys.exit(f"Couldn't download the published text to score against ({e}). Try finish again later.")
         draft.score_against(rec, {f"{b}:{c}:{v}": nt[(b, c, v)] for b, c, v in targets if (b, c, v) in nt})
+        for item in rec["verses"]:
+            # The published text keeps its own licence, so results hold only the score.
+            # `python3 tools/practice.py <corpus>` fetches it again for anyone comparing by hand.
+            item.pop("expected", None)
         out = os.path.join(RESULTS, f"{task['run']}.json")
     else:
         out = os.path.join(ROOT, "drafts", draft.slug(project["language"].get("code") or task["language"]),
@@ -289,28 +312,31 @@ def cmd_finish(args):
 
 def cmd_report(args):
     rows = defaultdict(lambda: {"runs": 0, "scores": [], "match": []})
-    for path in sorted(glob.glob(os.path.join(RESULTS, "*.json"))):
-        try:
-            rec = json.load(open(path, encoding="utf-8"))
-        except (OSError, ValueError):
-            continue
-        p = rec.get("practice", {})
-        key = (rec.get("target_language", "?"), p.get("corpus", "?"), rec.get("prompt_version", "?"),
+    for rec in practice_results():
+        p = rec["practice"]
+        model = str(rec.get("model", "?")).replace(" (volunteer, Claude Code)", "")
+        key = (rec.get("target_language", "?"), p.get("corpus", "?"), rec.get("prompt_version", "?"), model,
                "control" if p.get("control") else "examples")
         rows[key]["runs"] += 1
-        rows[key]["scores"] += [v["score"] for v in rec["verses"] if "score" in v]
-        rows[key]["match"] += [v["meaning_match"] for v in rec["verses"] if v.get("meaning_match") is not None]
+        for v in rec["verses"]:
+            if isinstance(v, dict) and isinstance(v.get("score"), (int, float)):
+                rows[key]["scores"].append(v["score"])
+            if isinstance(v, dict) and isinstance(v.get("meaning_match"), (int, float)):
+                rows[key]["match"].append(v["meaning_match"])
     if not rows:
         print("No practice results yet.")
         return
     mean = lambda xs: f"{sum(xs) / len(xs):.1f}" if xs else "-"
-    print("Language | Text | Prompt version | Kind | Runs | Verses | Score | Key words kept %")
-    for (lang, corpus, version, kind), r in sorted(rows.items()):
-        print(f"{lang} | {corpus} | {version} | {kind} | {r['runs']} | {len(r['scores'])} | "
+    print("Language | Text | Prompt version | Model | Kind | Runs | Verses | Score | Key words kept %")
+    for (lang, corpus, version, model, kind), r in sorted(rows.items()):
+        print(f"{lang} | {corpus} | {version} | {model} | {kind} | {r['runs']} | {len(r['scores'])} | "
               f"{mean(r['scores'])} | {mean(r['match'])}")
 
 
 def main():
+    if hasattr(sys.stdout, "reconfigure"):   # Windows pipes default to the ANSI code page
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
     ap = argparse.ArgumentParser(description="Donate your Claude session to Bible Translate.")
     sub = ap.add_subparsers(dest="cmd", required=True)
     s = sub.add_parser("start", help="pick a task and write its drafting prompt")
