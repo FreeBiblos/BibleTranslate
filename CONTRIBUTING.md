@@ -7,7 +7,7 @@ Bible Translate works like Wikipedia: anyone can help, every change is signed an
 | Role | Who | What they do |
 | --- | --- | --- |
 | **Speaker** | Someone who grew up speaking the language | Translates sample verses, builds the word list, and reviews AI drafts in the app |
-| **Drafter** | Anyone with a Claude API key | Runs `tools/draft.py` for a claimed passage and submits the draft file |
+| **Drafter** | Anyone with Claude Code or a Claude API key | Runs `/bible-translate:volunteer` (see README → Volunteer your Claude) or `tools/draft.py` for a claimed passage and submits the result |
 | **Checker** | Anyone, no need to know the language | Compares each back-translation with the KJV and flags meaning errors in the verse comments |
 | **Language steward** | A trusted speaker or partner organization | Watches over one language, settles disagreements over key terms, and decides when chapters go to the Bible app |
 
