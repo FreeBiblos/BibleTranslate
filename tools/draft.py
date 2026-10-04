@@ -5,7 +5,7 @@ Bible Translate app exports (Export -> Download project file). Every result is a
 speakers of the language review it in the app (Review drafts) before anything is approved.
 
 Usage:
-  pip install anthropic          # and set ANTHROPIC_API_KEY
+  pip install anthropic          # and set ANTHROPIC_API_KEY (BIBLETRANSLATE_API_KEY in Claude Code cloud sessions)
   python tools/draft.py PROJECT.json "Mark 1:16-20"
       draft a passage (one chapter at a time) -> drafts/<language>/mark-1-16-20.json
   python tools/draft.py PROJECT.json --test 10
@@ -257,7 +257,9 @@ def build_prompt(project, examples, targets):
 def call_claude(prompt, system=SYSTEM, schema=SCHEMA):
     import anthropic   # imported here so --dry-run works without the SDK installed
 
-    client = anthropic.Anthropic()
+    # BIBLETRANSLATE_API_KEY works where ANTHROPIC_API_KEY is reserved, such as Claude Code cloud sessions.
+    client = anthropic.Anthropic(
+        api_key=os.environ.get("BIBLETRANSLATE_API_KEY") or os.environ.get("ANTHROPIC_API_KEY"))
     try:
         response = client.beta.messages.create(
             model=MODEL,
@@ -270,7 +272,7 @@ def call_claude(prompt, system=SYSTEM, schema=SCHEMA):
             fallbacks="default",   # if a safety classifier declines, retry on Anthropic's recommended model
         )
     except anthropic.AuthenticationError:
-        sys.exit("The API key was rejected. Set ANTHROPIC_API_KEY to a valid key.")
+        sys.exit("The API key was rejected. Set ANTHROPIC_API_KEY (or BIBLETRANSLATE_API_KEY) to a valid key.")
     except anthropic.RateLimitError:
         sys.exit("Rate limited by the API. Wait a minute and try again.")
     except anthropic.APIStatusError as e:

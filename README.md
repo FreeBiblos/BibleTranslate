@@ -37,7 +37,7 @@ Then open http://localhost:8000. It is plain HTML, CSS and JavaScript, so it can
 
 ## Draft with Claude
 ```
-pip install anthropic          # and set ANTHROPIC_API_KEY
+pip install anthropic          # and set ANTHROPIC_API_KEY (in Claude Code cloud sessions, BIBLETRANSLATE_API_KEY)
 python3 tools/draft.py my-language-project.json --test 10
 python3 tools/draft.py my-language-project.json "Mark 1:16-20"
 ```
