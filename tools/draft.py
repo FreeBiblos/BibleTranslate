@@ -84,6 +84,39 @@ BT_SCHEMA = {
     "required": ["verses"], "additionalProperties": False,
 }
 
+JUDGE_VERSION = "2026-10-04.1"   # bump when JUDGE_SYSTEM or the judge prompt changes
+MEANING_FLOOR = 70               # meaning grades below this are flagged for reviewers
+JUDGE_SYSTEM = """You grade how much of each Bible verse's meaning survived translation into a language that has little written material. For each verse you get the original text (Greek or Hebrew), the KJV in English, and a literal English back-translation made by someone who saw only the new translation, never the original or the KJV. Judge the back-translation against the meaning of the original. The KJV is a guide to that meaning, not wording to match.
+
+- Grade meaning, not wording. Different words, word order or idioms that say the same thing lose nothing.
+- [?word] marks a word the back-translator could not read. Count the meaning that word should carry as missing.
+- Missing, added and changed meaning all lower the grade. A change to who does what to whom, a lost or added negation, or a wrong key term (God, Lord, Spirit, sin, faith, kingdom and the like) is serious.
+- Be strict. Reviewers rely on this grade to find the verses that need their closest look.
+
+For each verse:
+- missing: each piece of the original's meaning that the back-translation lacks, in a few words.
+- changed: each thing the back-translation adds or says differently, in a few words.
+- meaning_score, 0 to 100:
+  90-100: all of the meaning is there, with at most a trivial difference.
+  70-89: the main point is there, but a detail is missing, vague or slightly off.
+  40-69: part of the main point is missing or changed.
+  0-39: little of the verse's meaning survives, or it says something different.
+Use empty lists when nothing is missing or changed."""
+
+JUDGE_SCHEMA = {
+    "type": "object",
+    "properties": {"verses": {"type": "array", "items": {
+        "type": "object",
+        "properties": {   # the lists come first so the grade follows from them
+            "verse": {"type": "integer"},
+            "missing": {"type": "array", "items": {"type": "string"}},
+            "changed": {"type": "array", "items": {"type": "string"}},
+            "meaning_score": {"type": "integer"},
+        },
+        "required": ["verse", "missing", "changed", "meaning_score"], "additionalProperties": False}}},
+    "required": ["verses"], "additionalProperties": False,
+}
+
 _cache = {}
 
 
@@ -335,12 +368,64 @@ def apply_blind(rec, blind):
                 f"verse's key words; something may be missing or changed")
 
 
+def judge_prompt(blind, targets):
+    """The prompt for the meaning grade: the original, the KJV and the blind back-translation of each verse.
+    The judge never sees the draft itself or the drafter's own back-translation."""
+    lines = ["Verses to grade:"]
+    for b, c, v in targets:
+        if not blind.get(v):
+            continue
+        label, orig = original(b, c, v)
+        lines.append(f"Verse {v} ({ref_name(b, c, v)})")
+        if orig:
+            lines.append(f"  {label}: {orig}")
+        lines += [f"  KJV: {kjv_verse(b, c, v)}", f"  Back-translation: {blind[v]}"]
+    lines += ["", "Grade each verse above."]
+    return "\n".join(lines)
+
+
+def meaning_grades(blind, targets):
+    """A third, separate call grades each blind back-translation against the original's meaning.
+    Key-word overlap misses a verse that keeps its words but changes who does what; this catches it."""
+    return call_claude(judge_prompt(blind, targets), JUDGE_SYSTEM, JUDGE_SCHEMA)   # ({verse: grade}, model)
+
+
+def apply_judge(rec, graded, model=None):
+    """Store each verse's meaning grade ({verse: {meaning_score, missing, changed}}) and flag low ones."""
+    for item in rec["verses"]:
+        g = graded.get(item["verse"])
+        if not g or not item.get("independent_back_translation"):
+            continue
+        item["meaning_score"] = max(0, min(100, int(g["meaning_score"])))
+        item["meaning_missing"] = [s.strip() for s in g.get("missing", []) if s.strip()]
+        item["meaning_changed"] = [s.strip() for s in g.get("changed", []) if s.strip()]
+        if item["meaning_score"] < MEANING_FLOOR:
+            item.setdefault("checks", []).append(
+                f"Meaning grade {item['meaning_score']} of 100: the independent back-translation lost or "
+                f"changed part of the verse's meaning")
+    summarize_meaning(rec, model)
+
+
+def summarize_meaning(rec, model=None):
+    """Average meaning grade over the record's verses, kept with the judge's version and model."""
+    scores = [v["meaning_score"] for v in rec["verses"] if isinstance(v.get("meaning_score"), int)]
+    if not scores:
+        rec.pop("meaning", None)
+        return
+    rec["meaning"] = {"graded": len(scores), "average_score": round(sum(scores) / len(scores), 1),
+                      "metric": "meaning kept (0-100), graded by a separate Claude from the blind back-translation",
+                      "judge_version": JUDGE_VERSION,
+                      "judge_model": model or rec.get("meaning", {}).get("judge_model") or "unknown"}
+
+
 def add_checks(project, examples, rec, drafted, targets, independent):
-    """Automatic checks, plus the independent back-translation compared with the KJV."""
+    """Automatic checks, plus the independent back-translation compared with the KJV and graded for meaning."""
     import checks   # tools/checks.py
     checks.check_draft(project, rec)
     if independent:
-        apply_blind(rec, independent_back_translation(project, examples, drafted, targets))
+        blind = independent_back_translation(project, examples, drafted, targets)
+        apply_blind(rec, blind)
+        apply_judge(rec, *meaning_grades(blind, targets))
 
 
 # ---------- Scoring ----------
@@ -455,6 +540,7 @@ def run_test(project, examples, count, dry_run, independent=True):
     out = records[0] if records else draft_record(project, "", [], {}, MODEL, 0)
     out["verses"] = verses
     out["passage"] = f"Test: {len(verses)} sample verses"
+    summarize_meaning(out)   # over every chapter's verses, not just the first record's
     out["test"] = {"held_back": len(held), "average_score": round(sum(scores) / len(scores), 1) if scores else 0,
                    "metric": "chrF (0-100) against the speaker's own translation"}
     return out
@@ -466,7 +552,7 @@ def main():
     ap.add_argument("passage", nargs="?", help="passage in KJV numbering, one chapter at a time, e.g. 'Mark 1:16-20'")
     ap.add_argument("--test", type=int, metavar="N", help="hold back N speaker verses and score the drafts")
     ap.add_argument("--no-blind-check", action="store_true",
-                    help="skip the independent back-translation (halves the cost, loses the meaning check)")
+                    help="skip the independent back-translation and meaning grade (cheaper, loses the meaning checks)")
     ap.add_argument("--answers", help="practice runs: answers file from tools/practice.py to score the drafts")
     ap.add_argument("--out", help="output JSON path (default: drafts/<language>/...)")
     ap.add_argument("--dry-run", action="store_true", help="print the prompt and exit without calling the API")
@@ -505,12 +591,20 @@ def main():
         for n in d["notes"]:
             print(f"    - {n}")
         if d.get("independent_back_translation"):
-            print(f"    independent back-translation: {d['independent_back_translation']}  (match {d['meaning_match']})")
+            print(f"    independent back-translation: {d['independent_back_translation']}  (key words {d['meaning_match']}%)")
+        if "meaning_score" in d:
+            print(f"    meaning kept: {d['meaning_score']} / 100")
+            for m in d["meaning_missing"]:
+                print(f"      missing: {m}")
+            for m in d["meaning_changed"]:
+                print(f"      changed: {m}")
         for c in d.get("checks", []):
             print(f"    ! {c}")
         print()
     if "test" in result:
         print(f"Average match: {result['test']['average_score']} / 100 ({result['test']['metric']})")
+    if "meaning" in result:
+        print(f"Average meaning kept: {result['meaning']['average_score']} / 100 ({result['meaning']['metric']})")
     print(f"Saved to {os.path.relpath(out)}. Open it in the app under Review drafts.")
 
 

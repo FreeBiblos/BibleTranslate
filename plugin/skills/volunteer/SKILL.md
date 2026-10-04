@@ -15,7 +15,7 @@ Requested number of tasks: "$ARGUMENTS". Blank means 1, 0 means only send result
 ## 1. Say what will happen
 
 Before doing anything else, tell the person in two or three plain sentences:
-- Each task drafts about eight verses and checks them. It uses their own Claude plan or API usage, typically a few minutes per task.
+- Each task drafts about eight verses, then checks how much of their meaning survived. It uses their own Claude plan or API usage, typically a few minutes per task.
 - Results go to FreeBiblos/BibleTranslate as a public pull request. That needs a GitHub account, and the pull request shows their GitHub name.
 - On their computer, the only change is a copy of the project in `~/BibleTranslate`.
 
@@ -41,7 +41,10 @@ Repeat these steps for each task. Keep a list of the `result` paths that `finish
 3. **Check the draft.** Run `PY .../volunteer.py backtranslate RUN`. If it says the answer needs fixing, send the same subagent the message it printed and ask it to rewrite the file, then run the command again. On success its last line is JSON with `bt_prompt` and `bt_response`.
 4. **Blind back-translation, in a second fresh subagent.** Start another new general-purpose subagent. Don't reuse the drafting one: this one must never have seen the English or Greek of the verses. Give it this prompt:
    > Read the file BT_PROMPT and do exactly what it says. Read no other files and run no commands. Write your answer to BT_RESPONSE.
-5. **Finish.** Run `PY .../volunteer.py finish RUN --name "NAME"`. If the back-translation needs fixing, handle it as in step 3. Add the `result` path from its JSON line to your list, and show the person the summary line it printed.
+5. **Check the back-translation.** Run `PY .../volunteer.py judge RUN`. If it says the answer needs fixing, send the back-translating subagent the message it printed and ask it to rewrite the file, then run the command again. On success its last line is JSON with `judge_prompt` and `judge_response`.
+6. **Grade the meaning, in a third fresh subagent.** Start another new general-purpose subagent. Don't reuse either earlier one: the grader must judge the back-translation without knowing what the drafter meant to say. Give it this prompt:
+   > Read the file JUDGE_PROMPT and do exactly what it says. Read no other files and run no commands. Write your answer to JUDGE_RESPONSE.
+7. **Finish.** Run `PY .../volunteer.py finish RUN --name "NAME"`. If the grades need fixing, send the grading subagent the message it printed and ask it to rewrite the file, then run the command again. Add the `result` path from its JSON line to your list, and show the person the summary line it printed.
 
 If 0 tasks were asked for, your list is the files under `results/practice/` and `drafts/` in WS that `git -C WS status --porcelain -uall results drafts` shows as new (`??`), and whose run id (the part of the file name before `.json`, after any passage name) has a folder in `WS/work/`.
 
@@ -70,7 +73,7 @@ Send only the files on your list, nothing else. Never push to `main`, and don't 
 
 End with one short message:
 - how many tasks were done;
-- the average practice score, if there were practice runs;
+- the average wording match (practice runs only) and the average meaning kept, from the summary lines;
 - the pull request link, or the upload steps.
 
 Thank them briefly. Don't mention subagents, prompt files or JSON.
