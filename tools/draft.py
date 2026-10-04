@@ -222,6 +222,12 @@ def call_claude(prompt):
         sys.exit(f"API error {e.status_code}: {e.message}")
     except anthropic.APIConnectionError:
         sys.exit("Couldn't reach the API. Check the network connection.")
+    u = response.usage
+    print(f"  API usage ({response.model}): {u.input_tokens} input, {u.output_tokens} output tokens", file=sys.stderr)
+    if os.environ.get("BIBLETRANSLATE_USAGE_LOG"):
+        with open(os.environ["BIBLETRANSLATE_USAGE_LOG"], "a") as f:
+            f.write(json.dumps({"model": response.model, "input_tokens": u.input_tokens,
+                                "output_tokens": u.output_tokens}) + "\n")
     if response.stop_reason == "refusal":
         sys.exit("The model declined this request.")
     if response.stop_reason == "max_tokens":
