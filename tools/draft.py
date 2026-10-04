@@ -5,7 +5,7 @@ Bible Translate app exports (Export -> Download project file). Every result is a
 speakers of the language review it in the app (Review drafts) before anything is approved.
 
 Usage:
-  pip install anthropic          # and set ANTHROPIC_API_KEY
+  pip install anthropic          # and set ANTHROPIC_API_KEY (BIBLETRANSLATE_API_KEY in Claude Code cloud sessions)
   python tools/draft.py PROJECT.json "Mark 1:16-20"
       draft a passage (one chapter at a time) -> drafts/<language>/mark-1-16-20.json
   python tools/draft.py PROJECT.json --test 10
@@ -200,7 +200,9 @@ def build_prompt(project, examples, targets):
 def call_claude(prompt):
     import anthropic   # imported here so --dry-run works without the SDK installed
 
-    client = anthropic.Anthropic()
+    # BIBLETRANSLATE_API_KEY works where ANTHROPIC_API_KEY is reserved, such as Claude Code cloud sessions.
+    client = anthropic.Anthropic(
+        api_key=os.environ.get("BIBLETRANSLATE_API_KEY") or os.environ.get("ANTHROPIC_API_KEY"))
     try:
         response = client.beta.messages.create(
             model=MODEL,
@@ -213,13 +215,19 @@ def call_claude(prompt):
             fallbacks="default",   # if a safety classifier declines, retry on Anthropic's recommended model
         )
     except anthropic.AuthenticationError:
-        sys.exit("The API key was rejected. Set ANTHROPIC_API_KEY to a valid key.")
+        sys.exit("The API key was rejected. Set ANTHROPIC_API_KEY (or BIBLETRANSLATE_API_KEY) to a valid key.")
     except anthropic.RateLimitError:
         sys.exit("Rate limited by the API. Wait a minute and try again.")
     except anthropic.APIStatusError as e:
         sys.exit(f"API error {e.status_code}: {e.message}")
     except anthropic.APIConnectionError:
         sys.exit("Couldn't reach the API. Check the network connection.")
+    u = response.usage
+    print(f"  API usage ({response.model}): {u.input_tokens} input, {u.output_tokens} output tokens", file=sys.stderr)
+    if os.environ.get("BIBLETRANSLATE_USAGE_LOG"):
+        with open(os.environ["BIBLETRANSLATE_USAGE_LOG"], "a") as f:
+            f.write(json.dumps({"model": response.model, "input_tokens": u.input_tokens,
+                                "output_tokens": u.output_tokens}) + "\n")
     if response.stop_reason == "refusal":
         sys.exit("The model declined this request.")
     if response.stop_reason == "max_tokens":
@@ -274,7 +282,7 @@ def draft_record(project, title, targets, drafted, served_by, examples_used):
     }
 
 
-def run_passage(project, examples, passage, dry_run):
+def run_passage(project, examples, passage, dry_run, answers=None):
     b, c, verses = parse_passage(passage)
     targets = [(b, c, v) for v in verses]
     prompt = build_prompt(project, examples, targets)
@@ -286,7 +294,19 @@ def run_passage(project, examples, passage, dry_run):
     if missing:
         print(f"Warning: no draft returned for verse(s) {missing}.", file=sys.stderr)
     title = f"{load('kjv.json')[b][0]} {c}:{verses[0]}" + (f"-{verses[-1]}" if len(verses) > 1 else "")
-    return draft_record(project, title, targets, drafted, served_by, len(pick_examples(examples, targets)))
+    rec = draft_record(project, title, targets, drafted, served_by, len(pick_examples(examples, targets)))
+    if answers:   # practice run: score each draft against the published translation
+        scores = []
+        for item in rec["verses"]:
+            expected = answers.get(f"{item['book']}:{item['chapter']}:{item['verse']}")
+            if expected:
+                item["expected"] = expected
+                item["score"] = round(chrf(item["translation"], expected), 1)
+                scores.append(item["score"])
+        if scores:
+            rec["test"] = {"held_back": len(scores), "average_score": round(sum(scores) / len(scores), 1),
+                           "metric": "chrF (0-100) against the published translation"}
+    return rec
 
 
 def run_test(project, examples, count, dry_run):
@@ -330,6 +350,7 @@ def main():
     ap.add_argument("project", help="project file exported from the Bible Translate app")
     ap.add_argument("passage", nargs="?", help="passage in KJV numbering, one chapter at a time, e.g. 'Mark 1:16-20'")
     ap.add_argument("--test", type=int, metavar="N", help="hold back N speaker verses and score the drafts")
+    ap.add_argument("--answers", help="practice runs: answers file from tools/practice.py to score the drafts")
     ap.add_argument("--out", help="output JSON path (default: drafts/<language>/...)")
     ap.add_argument("--dry-run", action="store_true", help="print the prompt and exit without calling the API")
     args = ap.parse_args()
@@ -343,7 +364,8 @@ def main():
     examples = examples_from(project)
 
     result = (run_test(project, examples, args.test, args.dry_run) if args.test
-              else run_passage(project, examples, args.passage, args.dry_run))
+              else run_passage(project, examples, args.passage, args.dry_run,
+                               json.load(open(args.answers, encoding="utf-8")) if args.answers else None))
     if result is None:
         return
 
@@ -366,7 +388,7 @@ def main():
             print(f"    - {n}")
         print()
     if "test" in result:
-        print(f"Average match with the speakers' own translations: {result['test']['average_score']} / 100 (chrF)")
+        print(f"Average match: {result['test']['average_score']} / 100 ({result['test']['metric']})")
     print(f"Saved to {os.path.relpath(out)}. Open it in the app under Review drafts.")
 
 

@@ -72,6 +72,7 @@
   function showTab(name) {
     $$('.tabs button').forEach((t) => t.setAttribute('aria-selected', String(t.dataset.tab === name)));
     $$('.tab').forEach((s) => { s.hidden = s.id !== 'tab-' + name; });
+    if (name === 'needs') renderNeeds().catch(() => toast('Could not load the language list'));
     try { sessionStorage.setItem('bt-tab', name); } catch (e) { /* ignore */ }
   }
   $('.tabs').addEventListener('click', (e) => e.target.dataset.tab && showTab(e.target.dataset.tab));
@@ -198,7 +199,8 @@
     return `<div class="verse ${status}" data-d="${di}" data-v="${vi}">
       <div><span class="ref">${esc(v.ref || `${d.passage.replace(/:.*$/, '')}:${v.verse}`)}</span>
         <span class="chip ${esc(v.confidence)}">${esc(v.confidence)} confidence</span>
-        <span class="chip ${status}">${status.replace('-', ' ')}</span>
+        <span class="chip st ${status}">${status === 'approved' ? (confirmed(v) ? 'confirmed' : `approved by ${approvals(v).length} of ${CONFIRM}`) : status.replace('-', ' ')}</span>
+        ${approvals(v).length ? `<span class="muted small">${approvals(v).map((a) => esc(a.reviewer)).join(', ')}</span>` : ''}
         ${v.score != null ? `<span class="chip">match ${Math.round(v.score)}</span>` : ''}</div>
       <p class="kjv">${esc(v.kjv)}</p>
       <textarea class="target" rows="2" data-field="text" ${targetAttrs()}>${esc(text)}</textarea>
@@ -231,6 +233,11 @@
     v.review = Object.assign({ status: 'pending', reviewer: null, approved_text: null, comments: null }, v.review, patch);
     save();
   }
+  // Like Wikipedia, anyone can edit, but a verse is only confirmed once two different speakers approve
+  // the same wording. Changing the wording clears earlier approvals.
+  const CONFIRM = 2;
+  const approvals = (v) => (v.review && v.review.approvals) || [];
+  const confirmed = (v) => v.review && v.review.status === 'approved' && approvals(v).length >= CONFIRM;
   $('#drafts').addEventListener('click', (e) => {
     const t = e.target;
     if (t.dataset.dl) {
@@ -245,8 +252,17 @@
     const box = t.closest('.verse');
     if (!act || !box) return;
     const di = +box.dataset.d, vi = +box.dataset.v;
+    const v = P.drafts[di].verses[vi];
     const text = $('[data-field="text"]', box).value.trim();
-    setReview(di, vi, { status: act, reviewer: P.reviewer || null, approved_text: text, comments: $('[data-field="comments"]', box).value.trim() || null });
+    const who = ($('#reviewer').value || '').trim();
+    if (!who) { toast('Enter your name as reviewer first'); $('#reviewer').focus(); return; }
+    P.reviewer = who;
+    const before = (v.review && v.review.approved_text) ?? v.translation;
+    let list = text === before ? approvals(v) : [];
+    if (act === 'approved') list = list.filter((a) => a.reviewer !== who).concat({ reviewer: who, at: new Date().toISOString() });
+    else list = list.filter((a) => a.reviewer !== who);
+    setReview(di, vi, { status: list.length ? 'approved' : act, reviewer: who, approved_text: text, approvals: list,
+      comments: $('[data-field="comments"]', box).value.trim() || null });
     box.outerHTML = verseHTML(P.drafts[di], di, P.drafts[di].verses[vi], vi);
     const head = $$('.draft')[di];
     const d = P.drafts[di];
@@ -256,18 +272,24 @@
     const box = e.target.closest('.verse');
     if (!box) return;
     const field = e.target.dataset.field;
-    if (field === 'text') setReview(+box.dataset.d, +box.dataset.v, { approved_text: e.target.value.trim() });
+    if (field === 'text') {
+      setReview(+box.dataset.d, +box.dataset.v, { approved_text: e.target.value.trim(), approvals: [], status: 'pending' });
+      // Update in place: re-rendering here would swallow a click on Approve that caused this change.
+      const st = $('.chip.st', box);
+      st.className = 'chip st pending'; st.textContent = 'edited, needs approval';
+      box.classList.remove('approved', 'needs-work');
+    }
     if (field === 'comments') setReview(+box.dataset.d, +box.dataset.v, { comments: e.target.value.trim() || null });
   });
 
   // ---------- Approved verses ----------
   // Approved draft verses plus speaker samples, keyed "b:c:v". A speaker's own translation wins.
-  function approvedVerses() {
+  function approvedVerses(onlyConfirmed) {
     const out = new Map();
     for (const d of P.drafts) {
       if (d.test) continue;   // test runs re-translate sample verses; the speaker's version stands
       for (const v of d.verses) {
-        if (v.review && v.review.status === 'approved' && v.book != null) {
+        if (v.book != null && (onlyConfirmed ? confirmed(v) : v.review && v.review.status === 'approved')) {
           out.set(`${v.book}:${v.chapter}:${v.verse}`, (v.review.approved_text || v.translation).trim());
         }
       }
@@ -303,7 +325,7 @@
   // so books are cut at the first chapter that is not fully approved.
   $('#export-bibleapp').addEventListener('click', async () => {
     await kjv();
-    const ok = approvedVerses();
+    const ok = approvedVerses(true);
     const books = {};
     let chapters = 0, partial = 0, waiting = 0;
     for (let b = 0; b < KJV.length; b++) {
@@ -341,11 +363,56 @@
     P = blank(); save(); renderAll();
   });
 
+  // ---------- Languages still needing a Bible ----------
+  let NEEDS = null;
+  async function loadNeeds() {
+    if (!NEEDS) NEEDS = await (await fetch('data/languages-needing.json')).json();
+    return NEEDS;
+  }
+  async function renderNeeds() {
+    const data = await loadNeeds();
+    // Joshua Project's terms ask for this exact credit, linked.
+    $('#needs-attrib').innerHTML = `<a href="https://joshuaproject.net" target="_blank" rel="noopener">Data provided by Joshua Project</a>. ` +
+      `Families from <a href="https://glottolog.org" target="_blank" rel="noopener">Glottolog</a> (CC BY 4.0); Bibles listed from ` +
+      `<a href="https://ebible.org" target="_blank" rel="noopener">eBible.org</a>. List built ${esc(data.built)}.`;
+    const q = $('#needs-search').value.trim().toLowerCase();
+    const status = $('#needs-status').value;
+    const rec = $('#needs-rec').checked;
+    const rows = data.languages.filter((l) => (!status || l.status === status) && (!rec || l.recordings) &&
+      (!q || [l.name, l.code, l.country, l.family, l.group].some((v) => v && v.toLowerCase().includes(q))));
+    $('#needs-count').textContent = `${rows.length} languages`;
+    $('#needs-list').innerHTML = rows.slice(0, 300).map((l) => `<tr>
+      <td>${esc(l.name)}<span class="code">${esc(l.code)}</span></td>
+      <td>${esc(l.country)}</td>
+      <td>${esc(l.family || '')}${l.group && l.group !== l.family ? ` · ${esc(l.group)}` : ''}</td>
+      <td>${l.recordings ? `<a href="${esc(l.recordings)}" target="_blank" rel="noopener">Listen</a>` : ''}</td>
+      <td>${(l.relatives_with_bible || []).map((r) => `${esc(r.name)} <span class="code">${esc(r.bible)}</span>`).join(', ')}</td>
+      <td><button class="link" data-start="${esc(l.code)}">Start</button></td></tr>`).join('');
+    if (rows.length > 300) $('#needs-count').textContent += ' (showing the first 300; search to narrow)';
+  }
+  // 'input' only for the search box: its 'change' fires on blur and the re-render would swallow a click on Start.
+  $('#needs-search').addEventListener('input', renderNeeds);
+  ['#needs-status', '#needs-rec'].forEach((s) => $(s).addEventListener('change', renderNeeds));
+  $('#needs-list').addEventListener('click', (e) => {
+    const code = e.target.dataset.start;
+    if (!code) return;
+    const l = NEEDS.languages.find((x) => x.code === code);
+    if (P.language.name && P.language.code !== code &&
+        !confirm(`This browser already has a project for ${P.language.name}. Download its project file first. Replace it with ${l.name}?`)) return;
+    if (P.language.code !== code) P = blank();
+    const rel = (l.relatives_with_bible || [])[0];
+    Object.assign(P.language, {
+      name: l.name, code: l.code, region: l.country,
+      related: rel ? `${rel.name} (${rel.code}), same ${rel.shared_group} group` : P.language.related,
+    });
+    save(); renderAll(); showTab('language'); toast(`Started a project for ${l.name}`);
+  });
+
   // ---------- Start ----------
   function renderAll() { renderLanguage(); renderWords(); renderSamples(); renderDrafts(); }
   renderAll();
   let tab = 'language';
-  try { tab = sessionStorage.getItem('bt-tab') || (P.language.name ? 'samples' : 'language'); } catch (e) { /* ignore */ }
+  try { tab = sessionStorage.getItem('bt-tab') || (P.language.name ? 'samples' : 'needs'); } catch (e) { /* ignore */ }
   showTab(tab);
   kjv().then(renderSamples).catch(() => toast('Could not load the KJV text'));
 })();
