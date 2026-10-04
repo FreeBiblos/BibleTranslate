@@ -203,11 +203,11 @@
         ${approvals(v).length ? `<span class="muted small">${approvals(v).map((a) => esc(a.reviewer)).join(', ')}</span>` : ''}
         ${r.edited_by ? `<span class="muted small">wording by ${esc(r.edited_by)}</span>` : ''}
         ${v.score != null ? `<span class="chip">match ${Math.round(v.score)}</span>` : ''}
-        ${v.meaning_score != null ? `<span class="chip ${v.meaning_score >= 90 ? 'high' : v.meaning_score >= 70 ? 'medium' : 'low'}">meaning ${v.meaning_score}</span>` : ''}</div>
+        ${v.meaning_score != null ? `<span class="chip ${v.meaning_score >= 90 ? 'high' : v.meaning_score >= 70 ? 'medium' : 'low'}" title="How much meaning the AI draft kept, graded from the independent back-translation">meaning ${Math.round(Number(v.meaning_score))}</span>` : ''}</div>
       <p class="kjv">${esc(v.kjv)}</p>
       <textarea class="target" rows="2" data-field="text" ${targetAttrs()}>${esc(text)}</textarea>
       <p class="bt"><b>Back-translation</b> ${esc(v.back_translation)}</p>
-      ${v.independent_back_translation ? `<p class="bt"><b>Independent back-translation</b> ${esc(v.independent_back_translation)}${v.meaning_match != null ? ` <span class="muted small">(${v.meaning_match}% of the verse's key words${v.meaning_score != null ? `; meaning kept ${v.meaning_score} of 100` : ''})</span>` : ''}</p>` : ''}
+      ${v.independent_back_translation ? `<p class="bt"><b>Independent back-translation</b> ${esc(v.independent_back_translation)}${v.meaning_match != null ? ` <span class="muted small">(${Math.round(Number(v.meaning_match))}% of the verse's key words${v.meaning_score != null ? `; meaning kept ${Math.round(Number(v.meaning_score))} of 100` : ''})</span>` : ''}</p>` : ''}
       ${(v.meaning_missing || []).length || (v.meaning_changed || []).length ? `<p class="muted small">${[...(v.meaning_missing || []).map((m) => `Missing: ${esc(m)}`), ...(v.meaning_changed || []).map((m) => `Changed: ${esc(m)}`)].join(' · ')}</p>` : ''}
       ${(v.checks || []).length ? `<ul class="checks">${v.checks.map((c) => `<li>${esc(c)}</li>`).join('')}</ul>` : ''}
       ${v.expected ? `<p class="expected"><b>Speaker's own translation</b> <span ${targetAttrs()}>${esc(v.expected)}</span></p>` : ''}

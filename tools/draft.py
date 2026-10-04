@@ -90,7 +90,8 @@ JUDGE_SYSTEM = """You grade how much of each Bible verse's meaning survived tran
 
 - Grade meaning, not wording. Different words, word order or idioms that say the same thing lose nothing.
 - [?word] marks a word the back-translator could not read. Count the meaning that word should carry as missing.
-- Missing, added and changed meaning all lower the grade. A change to who does what to whom, a lost or added negation, or a wrong key term (God, Lord, Spirit, sin, faith, kingdom and the like) is serious.
+- Grade only what the back-translation actually says. Don't fill a vague or unreadable part with what you know the verse means.
+- Missing, added and changed meaning all lower the grade. A change to who does what to whom, a lost or added negation, or a wrong key term (God, Lord, Spirit, sin, faith, kingdom and the like) is a serious error, and any serious error puts the grade below 70.
 - Be strict. Reviewers rely on this grade to find the verses that need their closest look.
 
 For each verse:
@@ -321,7 +322,7 @@ def call_claude(prompt, system=SYSTEM, schema=SCHEMA):
     if response.stop_reason == "refusal":
         sys.exit("The model declined this request.")
     if response.stop_reason == "max_tokens":
-        sys.exit("The draft was cut off; try fewer verses at a time.")
+        sys.exit("The answer was cut off; try fewer verses at a time.")
     text = next(b.text for b in response.content if b.type == "text")
     return {d["verse"]: d for d in json.loads(text)["verses"]}, response.model
 
@@ -394,7 +395,11 @@ def apply_judge(rec, graded, model=None):
     """Store each verse's meaning grade ({verse: {meaning_score, missing, changed}}) and flag low ones."""
     for item in rec["verses"]:
         g = graded.get(item["verse"])
-        if not g or not item.get("independent_back_translation"):
+        if not item.get("independent_back_translation"):
+            continue
+        if not g:
+            if graded:
+                print(f"Warning: no meaning grade returned for verse {item['verse']}.", file=sys.stderr)
             continue
         item["meaning_score"] = max(0, min(100, int(g["meaning_score"])))
         item["meaning_missing"] = [s.strip() for s in g.get("missing", []) if s.strip()]
@@ -425,7 +430,10 @@ def add_checks(project, examples, rec, drafted, targets, independent):
     if independent:
         blind = independent_back_translation(project, examples, drafted, targets)
         apply_blind(rec, blind)
-        apply_judge(rec, *meaning_grades(blind, targets))
+        try:
+            apply_judge(rec, *meaning_grades(blind, targets))
+        except SystemExit as e:   # keep the draft and back-translation already paid for
+            print(f"Warning: no meaning grade ({e}). The draft is saved without one.", file=sys.stderr)
 
 
 # ---------- Scoring ----------
@@ -518,7 +526,7 @@ def run_test(project, examples, count, dry_run, independent=True):
     held = [speaker[int(i * step)] for i in range(count)]   # spread through the samples
     rest = {k: val for k, val in examples.items() if k not in held}
 
-    records, scores = [], []
+    records, scores, judges = [], [], set()
     for (b, c) in sorted({(b, c) for b, c, _ in held}):   # one request per chapter
         targets = [k for k in held if k[:2] == (b, c)]
         prompt = build_prompt(project, rest, targets)
@@ -534,13 +542,15 @@ def run_test(project, examples, count, dry_run, independent=True):
             item["score"] = round(chrf(item["translation"], expected), 1)
             scores.append(item["score"])
         records.append(rec)
+        if rec.get("meaning"):
+            judges.add(rec["meaning"]["judge_model"])
     if dry_run:
         return None
     verses = [v for r in records for v in r["verses"]]
     out = records[0] if records else draft_record(project, "", [], {}, MODEL, 0)
     out["verses"] = verses
     out["passage"] = f"Test: {len(verses)} sample verses"
-    summarize_meaning(out)   # over every chapter's verses, not just the first record's
+    summarize_meaning(out, ", ".join(sorted(judges)))   # over every chapter's verses, not just the first one's
     out["test"] = {"held_back": len(held), "average_score": round(sum(scores) / len(scores), 1) if scores else 0,
                    "metric": "chrF (0-100) against the speaker's own translation"}
     return out

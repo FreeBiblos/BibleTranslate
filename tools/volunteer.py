@@ -292,8 +292,12 @@ def cmd_finish(args):
     verses = [v for _, _, v in targets]
     drafted, model = read_answer(os.path.join(path, "draft-response.json"), verses, DRAFT_FIELDS, DRAFT_ENUMS)
     blind_items, bt_model = read_answer(os.path.join(path, "bt-response.json"), verses, {"back_translation": str})
-    graded, judge_model = read_answer(os.path.join(path, "judge-response.json"), verses, JUDGE_FIELDS,
-                                      ranges=JUDGE_RANGES)
+    if os.path.exists(os.path.join(path, "judge-prompt.md")):
+        graded, judge_model = read_answer(os.path.join(path, "judge-response.json"), verses, JUDGE_FIELDS,
+                                          ranges=JUDGE_RANGES)
+    else:   # started by an older copy of the volunteer command, which had no meaning grade
+        print("Note: no meaning grade for this task (the judge step was not run).", file=sys.stderr)
+        graded, judge_model = {}, None
 
     used = len(draft.pick_examples(examples, targets)) if examples else 0
     rec = draft.draft_record(project, task["passage"], targets, drafted, f"{model} (volunteer, Claude Code)", used)
@@ -301,7 +305,9 @@ def cmd_finish(args):
     draft.apply_blind(rec, {v: d["back_translation"] for v, d in blind_items.items()})
     draft.apply_judge(rec, graded, judge_model)
     rec["volunteer"] = {"name": (args.name or "anonymous")[:60], "via": "Claude Code plugin", "run": task["run"],
-                        "back_translation_model": bt_model, "judge_model": judge_model}
+                        "back_translation_model": bt_model}
+    if judge_model:
+        rec["volunteer"]["judge_model"] = judge_model
 
     if task["kind"] == "practice":
         rec["practice"] = {"corpus": task["corpus"], "control": task["control"], "samples": SAMPLES,
@@ -341,8 +347,9 @@ def cmd_report(args):
     for rec in practice_results():
         p = rec["practice"]
         model = str(rec.get("model", "?")).replace(" (volunteer, Claude Code)", "")
+        meaning = rec.get("meaning") if isinstance(rec.get("meaning"), dict) else {}
         key = (rec.get("target_language", "?"), p.get("corpus", "?"), rec.get("prompt_version", "?"), model,
-               "control" if p.get("control") else "examples")
+               "control" if p.get("control") else "examples", str(meaning.get("judge_version", "-")))
         rows[key]["runs"] += 1
         for v in rec["verses"]:
             if isinstance(v, dict) and isinstance(v.get("score"), (int, float)):
@@ -355,10 +362,10 @@ def cmd_report(args):
         print("No practice results yet.")
         return
     mean = lambda xs: f"{sum(xs) / len(xs):.1f}" if xs else "-"
-    print("Language | Text | Prompt version | Model | Kind | Runs | Verses | Wording match | Key words kept % "
-          "| Meaning kept")
-    for (lang, corpus, version, model, kind), r in sorted(rows.items()):
-        print(f"{lang} | {corpus} | {version} | {model} | {kind} | {r['runs']} | {len(r['scores'])} | "
+    print("Language | Text | Prompt version | Model | Kind | Judge version | Runs | Verses | Wording match "
+          "| Key words kept % | Meaning kept")
+    for (lang, corpus, version, model, kind, judge), r in sorted(rows.items()):
+        print(f"{lang} | {corpus} | {version} | {model} | {kind} | {judge} | {r['runs']} | {len(r['scores'])} | "
               f"{mean(r['scores'])} | {mean(r['match'])} | {mean(r['meaning'])}")
 
 
