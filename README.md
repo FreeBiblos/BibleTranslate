@@ -24,7 +24,7 @@ python3 tools/practice.py ong-ong                 # Olo, a relative of Agi (Papu
 python3 tools/draft.py practice/ong-ong-project.json --test 10
 python3 tools/draft.py practice/ong-ong-project.json "Mark 4:1-20" --answers practice/ong-ong-answers.json
 ```
-Scores are chrF (0 to 100, character overlap with the real translation). Use them to compare methods and prompts, and to decide how many sample verses a speaker needs to give before drafts are worth reviewing. The score never replaces speakers' review.
+Each draft gets two scores. The wording match is chrF (0 to 100, character overlap with the real translation): it is strict about spelling, so a correct verse in different words scores low. Meaning kept (0 to 100) is the meaning grade described under [How a draft is checked](#how-a-draft-is-checked-before-speakers-see-it), which works the same for languages with no published text to compare against. Use the scores to compare methods and prompts, and to decide how many sample verses a speaker needs to give before drafts are worth reviewing. The score never replaces speakers' review.
 
 ## Working together
 Many people, each with their own AI agent, can work on different languages and chapters at once, Wikipedia-style. See [CONTRIBUTING.md](CONTRIBUTING.md) for roles, claiming work, and the rule that two speakers confirm every verse.
@@ -36,7 +36,7 @@ Anyone with Claude Code can donate their own Claude usage to this project. No AP
 /plugin install bible-translate@freebiblos
 /bible-translate:volunteer 3
 ```
-The number is how many tasks to do (default 1, at most 10). Each task picks a language that has a Bible and is closely related to one that doesn't, drafts about eight verses of Mark from its first 60 verses, and scores the drafts against the published text. One task in five is a control run with no examples, which shows how much of the language Claude already knew. Each draft is written by a fresh subagent that reads only the prompt file. A second fresh subagent back-translates it without seeing the English or Greek, and then the automatic checks run. Results come back as a pull request adding files to `results/practice/`. They hold the drafts, the checks and the scores, but not the published verses, which keep their own licences. Without the GitHub CLI, the command gives web upload steps instead.
+The number is how many tasks to do (default 1, at most 10). Each task picks a language that has a Bible and is closely related to one that doesn't, drafts about eight verses of Mark from its first 60 verses, and scores the drafts against the published text. One task in five is a control run with no examples, which shows how much of the language Claude already knew. Each draft is written by a fresh subagent that reads only the prompt file. A second fresh subagent back-translates it without seeing the English or Greek. A third compares that back-translation with the original verse and grades how much of the meaning survived, and then the automatic checks run. Results come back as a pull request adding files to `results/practice/`. They hold the drafts, the checks and both scores (wording match and meaning kept), but not the published verses, which keep their own licences. Without the GitHub CLI, the command gives web upload steps instead.
 
 Working inside a copy of this repository, `/volunteer` does the same. To see the scores so far, run `python3 tools/volunteer.py report`.
 
@@ -59,8 +59,9 @@ Drafts are saved to `drafts/<language>/`. Open them in the app under **Review dr
 ### How a draft is checked before speakers see it
 1. **Examples chosen for coverage.** Up to 40 speaker verses are picked so that together they cover the passage's key words (English, Greek and Hebrew), plus the verses just before the passage so names and pronouns stay consistent. Confirmed verses are trusted most.
 2. **Blind back-translation.** A second, separate request translates the draft back into English without seeing the KJV. The app shows what share of the verse's key words came back. A low score means the meaning may have drifted.
-3. **Automatic checks** (`tools/checks.py`): repeated words, mixed writing systems, punctuation and quote problems, agreed key terms missing from the draft, and words no speaker has used yet (with likely misspellings).
-4. **Every draft records** the model, the prompt version and the date, so results can be compared when the method changes.
+3. **Meaning grade.** A third, separate request compares that blind back-translation with the Greek or Hebrew (and the KJV) and grades how much of the verse's meaning survived, from 0 to 100, listing what is missing or changed. It never sees the draft or what the drafter meant, so it judges only what the words say. Key words can all come back while who did what to whom changes; this grade catches that. Verses below 70 are flagged.
+4. **Automatic checks** (`tools/checks.py`): repeated words, mixed writing systems, punctuation and quote problems, agreed key terms missing from the draft, and words no speaker has used yet (with likely misspellings).
+5. **Every draft records** the model, the prompt version and the date, so results can be compared when the method changes.
 
 None of these replace speakers. They point reviewers at the verses that need the closest look.
 
@@ -132,6 +133,7 @@ Our own code, written after reading theirs; no code was copied.
 | --- | --- |
 | Pick examples that cover the passage's words; include the verses just before it | [Codex](https://github.com/genesis-ai-dev/codex-editor) (MIT) |
 | Blind back-translation as a separate step | [Codex](https://github.com/genesis-ai-dev/codex-editor), [Fluent](https://github.com/eten-tech-foundation/fluent-web) |
+| Grade meaning, not just wording, with a separate model call as the judge | The LLM-as-a-judge method ([Zheng et al. 2023](https://arxiv.org/abs/2306.05685)) |
 | Mechanical checks and a sound-aware spelling distance | [Greek Room](https://github.com/BibleNLP/greek-room) (BSD-3) |
 | The person who edits a verse can't also count as one of its two approvers; reasons required for "needs work"; full history per verse | [LangQuest](https://github.com/genesis-ai-dev/langquest), [Fluent](https://github.com/eten-tech-foundation/fluent-web) |
 | Log the model and prompt version with every draft | [Fluent](https://github.com/eten-tech-foundation/fluent-web), [LangQuest](https://github.com/genesis-ai-dev/langquest) |

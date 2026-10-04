@@ -202,11 +202,13 @@
         <span class="chip st ${status}">${status === 'approved' ? (confirmed(v) ? 'confirmed' : `approved by ${independent(v).length} of ${CONFIRM}`) : status.replace('-', ' ')}</span>
         ${approvals(v).length ? `<span class="muted small">${approvals(v).map((a) => esc(a.reviewer)).join(', ')}</span>` : ''}
         ${r.edited_by ? `<span class="muted small">wording by ${esc(r.edited_by)}</span>` : ''}
-        ${v.score != null ? `<span class="chip">match ${Math.round(v.score)}</span>` : ''}</div>
+        ${v.score != null ? `<span class="chip">match ${Math.round(v.score)}</span>` : ''}
+        ${v.meaning_score != null ? `<span class="chip ${v.meaning_score >= 90 ? 'high' : v.meaning_score >= 70 ? 'medium' : 'low'}" title="How much meaning the AI draft kept, graded from the independent back-translation">meaning ${Math.round(Number(v.meaning_score))}</span>` : ''}</div>
       <p class="kjv">${esc(v.kjv)}</p>
       <textarea class="target" rows="2" data-field="text" ${targetAttrs()}>${esc(text)}</textarea>
       <p class="bt"><b>Back-translation</b> ${esc(v.back_translation)}</p>
-      ${v.independent_back_translation ? `<p class="bt"><b>Independent back-translation</b> ${esc(v.independent_back_translation)}${v.meaning_match != null ? ` <span class="muted small">(${v.meaning_match}% of the verse's key words)</span>` : ''}</p>` : ''}
+      ${v.independent_back_translation ? `<p class="bt"><b>Independent back-translation</b> ${esc(v.independent_back_translation)}${v.meaning_match != null ? ` <span class="muted small">(${Math.round(Number(v.meaning_match))}% of the verse's key words${v.meaning_score != null ? `; meaning kept ${Math.round(Number(v.meaning_score))} of 100` : ''})</span>` : ''}</p>` : ''}
+      ${(v.meaning_missing || []).length || (v.meaning_changed || []).length ? `<p class="muted small">${[...(v.meaning_missing || []).map((m) => `Missing: ${esc(m)}`), ...(v.meaning_changed || []).map((m) => `Changed: ${esc(m)}`)].join(' · ')}</p>` : ''}
       ${(v.checks || []).length ? `<ul class="checks">${v.checks.map((c) => `<li>${esc(c)}</li>`).join('')}</ul>` : ''}
       ${v.expected ? `<p class="expected"><b>Speaker's own translation</b> <span ${targetAttrs()}>${esc(v.expected)}</span></p>` : ''}
       ${(v.notes || []).length ? `<ul class="notes">${v.notes.map((n) => `<li>${esc(n)}</li>`).join('')}</ul>` : ''}
@@ -227,6 +229,7 @@
           <button class="link" data-close="${di}">Close</button></div>
         <p class="notice">${esc(d.notice || 'AI draft. Needs review by speakers of the language.')}</p>
         ${d.test ? `<p class="muted">Test run: the AI translated verses a speaker already translated, without seeing them. Average match ${Math.round(d.test.average_score)} out of 100 (chrF).</p>` : ''}
+        ${d.meaning ? `<p class="muted">Meaning kept: ${Math.round(d.meaning.average_score)} out of 100 on average, graded by a separate AI from the independent back-translation. It points reviewers at verses to check; it is not a speaker's judgement.</p>` : ''}
         ${d.verses.map((v, vi) => verseHTML(d, di, v, vi)).join('')}</section>`;
     }).join('');
     $('#drafts-empty').hidden = P.drafts.length > 0;
